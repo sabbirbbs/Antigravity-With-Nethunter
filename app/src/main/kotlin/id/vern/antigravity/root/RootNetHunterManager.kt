@@ -352,7 +352,15 @@ object RootNetHunterManager {
                         ESC=${'$'}(printf '%s' "${'$'}a" | sed "s/'/'\\\\''/g")
                         ARGS="${'$'}ARGS '${'$'}ESC'"
                     done
-                    exec su -mm -c "unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}CHROOT_CWD\" 2>/dev/null || cd /root; exec $tool ${'$'}ARGS'"
+                    INNER="unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}CHROOT_CWD\" 2>/dev/null || cd /root; exec $tool ${'$'}ARGS'"
+                    if [ "${'$'}(id -u)" = "0" ]; then
+                        exec /system/bin/sh -c "${'$'}INNER"
+                    fi
+                    SU_BIN="su"
+                    for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+                        if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
+                    done
+                    exec "${'$'}SU_BIN" -mm -c "${'$'}INNER"
                 """.trimIndent() + "\n"
                 writeExecutableScript(target, shim)
             }
@@ -369,6 +377,13 @@ object RootNetHunterManager {
 
         val kaliScript = """
             #!/system/bin/sh
+            if [ -f /etc/kali_version ] || [ -f /etc/debian_version ]; then
+                if [ "${'$'}#" -eq 0 ]; then
+                    exec /bin/bash -l
+                else
+                    exec /bin/bash -c "$*"
+                fi
+            fi
             CHROOT="${'$'}{AGY_CHROOT_DIR:-$chrootPath}"
             if [ ! -d "${'$'}CHROOT" ]; then
                 for d in /data/local/nhsystem/kali-arm64 /data/local/nhsystem/kalifs /data/local/nhsystem/kali*; do
@@ -388,13 +403,22 @@ object RootNetHunterManager {
                 /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                 *) CHROOT_CWD="/sdcard/Antigravity" ;;
             esac
+            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0'; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true;"
             if [ "${'$'}#" -eq 0 ]; then
-                exec su -mm -c "unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -l"
+                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -l"
             else
                 CMD="$*"
                 ESC_CMD=${'$'}(printf '%s' "${'$'}CMD" | sed "s/'/'\\\\''/g")
-                exec su -mm -c "unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0'; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD'"
+                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD'"
             fi
+            if [ "${'$'}(id -u)" = "0" ]; then
+                exec /system/bin/sh -c "${'$'}RUN_LINE"
+            fi
+            SU_BIN="su"
+            for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+                if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
+            done
+            exec "${'$'}SU_BIN" -mm -c "${'$'}RUN_LINE"
         """.trimIndent() + "\n"
 
         val nhShellScript = """
@@ -437,10 +461,26 @@ object RootNetHunterManager {
 
         val srvScript = """
             #!/system/bin/sh
-            SRV_DIR="${filesDir.absolutePath}/srv"
+            if [ -d "${filesDir.absolutePath}" ]; then
+                SRV_DIR="${filesDir.absolutePath}/srv"
+            else
+                SRV_DIR="/opt/antigravity/srv"
+            fi
             mkdir -p "${'$'}SRV_DIR"
             ACTION="${'$'}1"
             shift 2>/dev/null || true
+
+            run_priv() {
+                if [ "${'$'}(id -u)" = "0" ]; then
+                    /system/bin/sh -c "${'$'}1" 2>/dev/null || /bin/sh -c "${'$'}1"
+                else
+                    SU_BIN="su"
+                    for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+                        if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
+                    done
+                    "${'$'}SU_BIN" -mm -c "${'$'}1"
+                fi
+            }
 
             case "${'$'}ACTION" in
                 start)
@@ -453,22 +493,28 @@ object RootNetHunterManager {
                     CMD="$*"
                     LOG="${'$'}SRV_DIR/${'$'}NAME.log"
                     PIDF="${'$'}SRV_DIR/${'$'}NAME.pid"
-                    if [ -f "${'$'}PIDF" ] && su -mm -c "kill -0 '${'$'}(cat "${'$'}PIDF")' 2>/dev/null"; then
+                    if [ -f "${'$'}PIDF" ] && run_priv "kill -0 '${'$'}(cat "${'$'}PIDF")' 2>/dev/null"; then
                         echo "[agy-srv] '${'$'}NAME' already running (PID ${'$'}(cat "${'$'}PIDF"))"
                         exit 0
                     fi
                     CUR_DIR="${'$'}(pwd 2>/dev/null || echo '$wsDefault')"
                     CHROOT="${'$'}{AGY_CHROOT_DIR:-$chrootPath}"
-                    case "${'$'}CUR_DIR" in
-                        "${'$'}CHROOT"*) CHROOT_CWD="${'$'}{CUR_DIR#"${'$'}CHROOT"}"; [ -z "${'$'}CHROOT_CWD" ] && CHROOT_CWD="/" ;;
-                        *) CHROOT_CWD="${'$'}CUR_DIR" ;;
-                    esac
                     ESC_CMD=${'$'}(printf '%s' "${'$'}CMD" | sed "s/'/'\\\\''/g")
-                    if [ -d "${'$'}CHROOT" ] && [ "${'$'}{AGY_EXEC_MODE:-KALI_NETHUNTER}" = "KALI_NETHUNTER" ]; then
-                        su -mm -c "setsid chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+
+                    if [ -f /etc/kali_version ] || [ -f /etc/debian_version ] || [ ! -d "${'$'}CHROOT" ]; then
+                        # Already inside Kali NetHunter chroot OR chroot unavailable: run detached directly
+                        ESC_CUR=${'$'}(printf '%s' "${'$'}CUR_DIR" | sed "s/'/'\\\\''/g")
+                        run_priv "setsid /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}ESC_CUR' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+                    elif [ "${'$'}{AGY_EXEC_MODE:-KALI_NETHUNTER}" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
+                        case "${'$'}CUR_DIR" in
+                            "${'$'}CHROOT"*) CHROOT_CWD="${'$'}{CUR_DIR#"${'$'}CHROOT"}"; [ -z "${'$'}CHROOT_CWD" ] && CHROOT_CWD="/" ;;
+                            *) CHROOT_CWD="${'$'}CUR_DIR" ;;
+                        esac
+                        run_priv "setsid chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
                     else
-                        su -mm -c "cd '${'$'}CUR_DIR' 2>/dev/null || cd '$wsDefault'; setsid /system/bin/sh -c '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+                        run_priv "cd '${'$'}CUR_DIR' 2>/dev/null || cd '$wsDefault'; setsid /system/bin/sh -c '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
                     fi
+
                     sleep 1
                     WIFI_IP=${'$'}(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n1)
                     if [ -f "${'$'}PIDF" ]; then
@@ -476,14 +522,14 @@ object RootNetHunterManager {
                     else
                         echo "[agy-srv] Launched '${'$'}NAME', check log: ${'$'}LOG"
                     fi
-                    [ -n "${'$'}WIFI_IP" ] && echo "[agy-srv] Phone Wi-Fi IP: ${'$'}WIFI_IP (bind to 0.0.0.0 to access on LAN)"
+                    [ -n "${'$'}WIFI_IP" ] && echo "[agy-srv] URLs: http://127.0.0.1:<port> and http://${'$'}WIFI_IP:<port>"
                     ;;
                 stop)
                     NAME="${'$'}1"
                     PIDF="${'$'}SRV_DIR/${'$'}NAME.pid"
                     if [ -f "${'$'}PIDF" ]; then
                         PID="${'$'}(cat "${'$'}PIDF")"
-                        su -mm -c "kill -TERM -${'$'}PID 2>/dev/null || kill -9 ${'$'}PID 2>/dev/null || true"
+                        run_priv "kill -TERM -${'$'}PID 2>/dev/null || kill -9 ${'$'}PID 2>/dev/null || true"
                         rm -f "${'$'}PIDF"
                         echo "[agy-srv] Stopped '${'$'}NAME' (PID ${'$'}PID)"
                     else
@@ -495,7 +541,7 @@ object RootNetHunterManager {
                         [ -e "${'$'}f" ] || continue
                         NAME="${'$'}(basename "${'$'}f" .pid)"
                         PID="${'$'}(cat "${'$'}f")"
-                        if su -mm -c "kill -0 ${'$'}PID 2>/dev/null"; then
+                        if run_priv "kill -0 ${'$'}PID 2>/dev/null"; then
                             echo "RUNNING  ${'$'}NAME  (PID ${'$'}PID)"
                         else
                             echo "DEAD     ${'$'}NAME  (stale PID ${'$'}PID)"
@@ -503,7 +549,7 @@ object RootNetHunterManager {
                     done
                     ;;
                 ports)
-                    su -mm -c "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6"
+                    run_priv "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6"
                     ;;
                 logs)
                     NAME="${'$'}1"
@@ -545,23 +591,26 @@ object RootNetHunterManager {
         val chrootText = status.chrootPath ?: "Not detected"
         val wifiIp = getLocalWifiIpAddress(context) ?: "<device-wifi-ip>"
         val ruleText = """
-            # Root & Kali NetHunter Android Environment
+            # Root & Kali NetHunter Android Environment (Live Context)
             
-            - **Device Mode**: `${status.effectiveMode.displayName}` (Magisk Root: `${status.hasRoot}`)
-            - **Default Shared Workspace**: `$wsDefault` (accessible in Android & Kali `/sdcard/Antigravity`)
-            - **Kali NetHunter Chroot**: `$chrootText` (full Kali ARM64 Linux, bind-mounted with `/sdcard` and `/storage/emulated/0`)
+            - **Current OS & Shell Context**: You are running inside a **rooted Android 11+ ARM64 device (`uid=0`, Magisk Root: `${status.hasRoot}`)** paired with **Kali NetHunter Chroot (`$chrootText`)**.
+            - **Active Execution Mode**: `${status.effectiveMode.displayName}`
+            - **Simultaneous File Access**:
+              - Android shared storage (`/storage/emulated/0`, `/sdcard`) is bind-mounted at `/sdcard` and `/storage/emulated/0` inside Kali NetHunter.
+              - Default shared workspace: `$wsDefault` (identical to `/sdcard/Antigravity` in Kali).
+              - Kali Linux root filesystem (`/root`, `/home`, `/var/www`, etc.) is active directly when running commands in `KALI_NETHUNTER` mode.
             - **Phone LAN Wi-Fi IP**: `$wifiIp`
             
-            ## Important Rules for Commands, Web Servers & Previews
-            1. You have full root privileges (`uid=0`) inside Kali NetHunter. You can store and edit projects directly inside Kali (`/root/...`, `/home/...`, `/var/www/...`) OR in `/sdcard/Antigravity`.
-            2. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`!** Never start blocking or loopback-only servers that die on turn exit or fail on LAN Wi-Fi:
+            ## Critical Execution Rules (Read Carefully!)
+            1. **NEVER run `su` or `sudo` in your commands!** Your shell already executes with full `uid=0` root privileges. Running `su` inside Android/glibc/chroot causes `su: unknown user root` or PAM errors and is completely unnecessary.
+            2. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`** (or `setsid ... >/tmp/srv.log 2>&1 </dev/null &`) so they stay alive after your turn ends:
                - Python: `agy-srv start web "python3 -m http.server 8000 --bind 0.0.0.0"`
                - Node/Vite: `agy-srv start vite "npm run dev -- --host 0.0.0.0 --port 5173"`
                - Next.js: `agy-srv start next "npx next dev -H 0.0.0.0 -p 3000"`
                - Flask: `agy-srv start flask "flask run --host=0.0.0.0 --port=5000"`
-               Always share BOTH `http://127.0.0.1:<port>` (for device preview) AND `http://$wifiIp:<port>` (for local Wi-Fi).
-            3. Use standard `[filename](file:///exact/path)` links for created/edited files—Antigravity opens `file:///` links and `http://127.0.0.1:<port>` links directly inside the in-app preview viewer.
-            4. Check running servers/ports with `agy-srv list`, `agy-srv logs <name>`, and `agy-srv ports`.
+               Check status/ports with `agy-srv list`, `agy-srv logs <name>`, `agy-srv ports`.
+               Share clickable links `http://127.0.0.1:<port>` (for in-app browser preview) and `http://$wifiIp:<port>` (for LAN Wi-Fi).
+            3. **File Links:** Output standard `[filename](file:///exact/path)` links—Antigravity opens `file:///` links directly in the built-in preview/editor.
         """.trimIndent() + "\n"
 
         listOf(
@@ -573,6 +622,30 @@ object RootNetHunterManager {
                 ruleFile.writeText(ruleText, Charsets.UTF_8)
                 ruleFile.setReadable(true, false)
                 ruleFile.setWritable(true, false)
+            } catch (_: Exception) {}
+        }
+
+        val startMarker = "<!-- AGY_NH_ENV_START -->"
+        val endMarker = "<!-- AGY_NH_ENV_END -->"
+        val wrappedBlock = "$startMarker\n$ruleText$endMarker\n"
+        listOf(
+            File(context.filesDir, "home/.gemini/GEMINI.md"),
+            File(context.filesDir, "home/.gemini/antigravity-cli/GEMINI.md"),
+            File(context.filesDir, ".gemini/config/GEMINI.md")
+        ).forEach { geminiFile ->
+            try {
+                geminiFile.parentFile?.mkdirs()
+                val existing = if (geminiFile.exists()) geminiFile.readText(Charsets.UTF_8) else ""
+                val updated = if (existing.contains(startMarker) && existing.contains(endMarker)) {
+                    existing.replace(Regex("$startMarker[\\s\\S]*?$endMarker\\n?"), wrappedBlock)
+                } else if (existing.isBlank()) {
+                    wrappedBlock
+                } else {
+                    "$existing\n\n$wrappedBlock"
+                }
+                geminiFile.writeText(updated, Charsets.UTF_8)
+                geminiFile.setReadable(true, false)
+                geminiFile.setWritable(true, false)
             } catch (_: Exception) {}
         }
     }

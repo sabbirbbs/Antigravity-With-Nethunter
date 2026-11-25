@@ -562,6 +562,7 @@ object EngineExecutor {
             if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
                 RootNetHunterManager.ensureChrootMounted(context, chrootPath, targetCwd)
             }
+            RootNetHunterManager.deployRootAndNetHunterTools(context)
         } catch (_: Exception) {}
 
         val libraryPaths = listOf(libDir.absolutePath, prefixLib.absolutePath)
@@ -588,7 +589,7 @@ object EngineExecutor {
         val validGitExec = if (gitExecDir.exists() && gitExecDir.isDirectory) gitExecDir else null
         val validGitTemplate = File(prefixDir, "share/git-core/templates").apply { mkdirs() }
         val extraGitPath = if (validGitExec != null) ":${validGitExec.absolutePath}" else ""
-        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system/bin:/system/xbin"
+        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
         val nhShellFile = File(prefixDir, "bin/agy-nh-shell")
         val shellToUse = if (execMode != ExecutionMode.SANDBOX && nhShellFile.canExecute()) {
             nhShellFile.absolutePath
