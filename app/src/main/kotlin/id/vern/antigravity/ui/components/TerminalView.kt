@@ -422,12 +422,17 @@ fun TerminalView(
                     shape = RoundedCornerShape(4.dp),
                     color = Color(0xFF0F3D2E),
                     modifier = Modifier.clickable {
-                        InAppPreviewController.openWebUrl(termContext, "http://127.0.0.1:8000")
+                        val (_, portsOut) = id.vern.antigravity.root.RootNetHunterManager.runSuQuick(
+                            "ss -tln 2>/dev/null | awk 'NR>1 {print \$4}' | sed 's/.*://' | grep -E '^[0-9]+$' | grep -vE '^(45158|45161|8085|5037)$' | head -n1",
+                            1500L
+                        )
+                        val port = portsOut.trim().toIntOrNull() ?: 8000
+                        InAppPreviewController.openWebUrl(termContext, "http://127.0.0.1:$port")
                         safeRequestFocus()
                     }
                 ) {
                     Text(
-                        text = "Open :8000",
+                        text = "Web Preview",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,

@@ -516,7 +516,7 @@ object RootNetHunterManager {
                     fi
 
                     sleep 1
-                    WIFI_IP=${'$'}(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n1)
+                    WIFI_IP=${'$'}(ip -4 addr show 2>/dev/null | awk '/inet / && $2 !~ /^127\./ {sub(/\/.*/, "", $2); print $2; exit}')
                     if [ -f "${'$'}PIDF" ]; then
                         echo "[agy-srv] Started '${'$'}NAME' (PID ${'$'}(cat "${'$'}PIDF")), log: ${'$'}LOG"
                     else

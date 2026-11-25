@@ -95,6 +95,13 @@ object InAppPreviewController {
     var activeTarget by mutableStateOf<PreviewTarget?>(null)
         private set
 
+    var editorNavRequest by mutableStateOf(0)
+        private set
+
+    fun requestSwitchToEditor() {
+        editorNavRequest++
+    }
+
     fun dismiss() {
         activeTarget = null
     }
@@ -216,6 +223,7 @@ fun InAppPreviewHost(
                         onOpenInEditor = { file ->
                             viewModel.openFileInEditor(file)
                             InAppPreviewController.dismiss()
+                            InAppPreviewController.requestSwitchToEditor()
                             onSwitchToWorkspaceEditor?.invoke()
                             Toast.makeText(context, "Opened ${file.name} in Code Editor", Toast.LENGTH_SHORT).show()
                         },
@@ -502,6 +510,7 @@ private fun InAppLocalFilePreviewContent(
     val isHtml = ext == "html" || ext == "htm" || ext == "svg"
     val isMarkdown = ext == "md" || ext == "markdown"
     val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
+    var showSourceCode by remember(currentFile) { mutableStateOf(false) }
 
     LaunchedEffect(currentFile) {
         isLoading = true
@@ -573,6 +582,18 @@ private fun InAppLocalFilePreviewContent(
                             .padding(top = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        if (isHtml || isMarkdown) {
+                            OutlinedButton(
+                                onClick = { showSourceCode = !showSourceCode },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = if (showSourceCode) "Preview" else "Code",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                         OutlinedButton(
                             onClick = { onOpenInEditor(currentFile) },
                             shape = RoundedCornerShape(8.dp)
@@ -688,7 +709,7 @@ private fun InAppLocalFilePreviewContent(
                     )
                 }
             }
-            isHtml && textContent != null -> {
+            !showSourceCode && isHtml && textContent != null -> {
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
@@ -718,7 +739,7 @@ private fun InAppLocalFilePreviewContent(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            isMarkdown && textContent != null -> {
+            !showSourceCode && isMarkdown && textContent != null -> {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                     item {
                         MarkdownText(markdown = textContent!!)

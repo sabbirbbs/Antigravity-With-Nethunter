@@ -84,6 +84,11 @@ fun WorkspaceScreen(
 ) {
     val context = LocalContext.current
     var activeView by remember { mutableStateOf(ActiveToolView.CHAT) }
+    androidx.compose.runtime.LaunchedEffect(id.vern.antigravity.ui.components.InAppPreviewController.editorNavRequest) {
+        if (id.vern.antigravity.ui.components.InAppPreviewController.editorNavRequest > 0) {
+            activeView = ActiveToolView.EDITOR
+        }
+    }
     val appearance by viewModel.appearanceConfig.collectAsStateWithLifecycle()
     val selectedModel by viewModel.selectedModel.collectAsStateWithLifecycle()
     val thinkingBudget by viewModel.thinkingBudget.collectAsStateWithLifecycle()
