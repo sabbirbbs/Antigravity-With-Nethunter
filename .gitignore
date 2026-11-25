@@ -1,0 +1,21 @@
+# Gradle & Build outputs
+.gradle/
+build/
+app/build/
+*/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDE & OS
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Keystores & Secrets
+*.jks
+*.keystore
+google-services.json
