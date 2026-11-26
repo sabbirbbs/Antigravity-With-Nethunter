@@ -2160,16 +2160,16 @@ class AntigravityViewModel : ViewModel() {
                                                     isCompleted = state != "ACTIVE"
                                                 )
 
+                                                val toolCallId = stepUpdate.optString("tool_call_id").ifBlank { stableStepId }
                                                 if (toolName == "run_command") {
                                                     val cmdClean = params?.optString("CommandLine")?.trim()?.removeSurrounding("\"")?.removeSurrounding("'") ?: ""
                                                     if (state == "ACTIVE") {
-                                                        if (cmdClean.isNotBlank() && mutableRunningTasks.value.none { it.id == stableStepId || it.command == cmdClean }) {
-                                                            mutableRunningTasks.update { it + RunningTask(id = stableStepId, name = stepTitle, command = cmdClean) }
+                                                        if (cmdClean.isNotBlank() && mutableRunningTasks.value.none { it.id == toolCallId || it.id == stableStepId || it.command == cmdClean }) {
+                                                            mutableRunningTasks.update { it + RunningTask(id = toolCallId, name = stepTitle, command = cmdClean) }
                                                         }
                                                     } else {
-                                                        removeRunningTask(stableStepId)
-                                                        if (cmdClean.isNotBlank()) {
-                                                            mutableRunningTasks.update { list -> list.filter { it.command != cmdClean } }
+                                                        mutableRunningTasks.update { list ->
+                                                            list.filterNot { it.id == toolCallId || it.id == stableStepId || (cmdClean.isNotBlank() && it.command == cmdClean) }
                                                         }
                                                     }
                                                 } else if (toolName == "invoke_subagent") {
@@ -2330,6 +2330,9 @@ class AntigravityViewModel : ViewModel() {
                                                     activeThoughtSb.clear()
                                                 }
                                             } else if (stepType == "agent_response") {
+                                                if (mutableRunningTasks.value.isNotEmpty()) {
+                                                    mutableRunningTasks.value = emptyList()
+                                                }
                                                 val respDur = stepUpdate.optDouble("duration_seconds", 0.0).toInt()
                                                 if (respDur > 0) {
                                                     lastAgentResponseDurationSec = respDur
@@ -2338,16 +2341,14 @@ class AntigravityViewModel : ViewModel() {
                                                 if (textDelta.isNotEmpty()) {
                                                     outputSb.append(textDelta)
                                                     val now = System.currentTimeMillis()
-                                                    if (now - lastStreamUpdateMs > 200L) {
+                                                    if (now - lastStreamUpdateMs > 300L) {
                                                         lastStreamUpdateMs = now
                                                         val currentOutput = outputSb.toString()
                                                         mutableChatMessages.update { list ->
                                                             list.map { msg ->
                                                                 if (msg.id == assistantMsgId) {
                                                                     val finalizedSteps = msg.steps.map { step ->
-                                                                        if (step.kind == AgentStepKind.THOUGHT && !step.isCompleted) {
-                                                                            step.copy(isCompleted = true)
-                                                                        } else step
+                                                                        if (!step.isCompleted) step.copy(isCompleted = true) else step
                                                                     }
                                                                     msg.copy(content = currentOutput, steps = finalizedSteps)
                                                                 } else msg

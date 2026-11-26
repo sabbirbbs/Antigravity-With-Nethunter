@@ -750,6 +750,8 @@ object EngineExecutor {
                 writer.flush()
             }
 
+            val toolCallCache = mutableMapOf<String, Pair<String, JSONObject?>>()
+
             fun readUntilResponse(expectedId: Int): JSONObject? {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
@@ -783,14 +785,24 @@ object EngineExecutor {
                             }
                             "tool_call", "tool_call_update" -> {
                                 flushThoughtDone()
-                                val toolName = upd.optString("name").ifBlank { upd.optString("title", "tool") }
+                                val toolCallId = upd.optString("toolCallId").ifBlank { upd.optString("id") }
+                                val rawName = upd.optString("name").ifBlank { upd.optString("title", "") }
+                                val rawArgs = upd.optJSONObject("args") ?: upd.optJSONObject("rawInput")
+                                val cached = if (toolCallId.isNotBlank()) toolCallCache[toolCallId] else null
+
+                                val toolName = rawName.ifBlank { cached?.first ?: "tool" }
+                                val argsObj = rawArgs ?: cached?.second
+                                if (toolCallId.isNotBlank() && (rawName.isNotBlank() || rawArgs != null)) {
+                                    toolCallCache[toolCallId] = toolName to argsObj
+                                }
+
                                 val status = upd.optString("status").lowercase()
                                 val state = if (status == "completed" || status == "failed" || status == "cancelled" || status == "done") {
+                                    if (toolCallId.isNotBlank()) toolCallCache.remove(toolCallId)
                                     "DONE"
                                 } else {
                                     "ACTIVE"
                                 }
-                                val argsObj = upd.optJSONObject("args") ?: upd.optJSONObject("rawInput")
                                 val toolInfo = JSONObject().apply {
                                     if (argsObj != null) put("args", argsObj)
                                 }
@@ -798,6 +810,7 @@ object EngineExecutor {
                                     put("step_type", "tool")
                                     put("state", state)
                                     put("tool_name", toolName)
+                                    if (toolCallId.isNotBlank()) put("tool_call_id", toolCallId)
                                     put("tool_info", toolInfo)
                                     extractToolOutput(upd)?.let { put("output", it) }
                                 }
@@ -923,7 +936,11 @@ object EngineExecutor {
             if (activeSessionId.isBlank()) ACP_UNAVAILABLE else -1
         } finally {
             try { process.outputStream.close() } catch (_: Exception) {}
-            try { process.destroy() } catch (_: Exception) {}
+            try {
+                if (process.isAlive) {
+                    process.destroyForcibly()
+                }
+            } catch (_: Exception) {}
             try { stderrThread.join(500) } catch (_: Exception) {}
             if (execMode != ExecutionMode.SANDBOX) {
                 try { RootNetHunterManager.makeGeminiReadable(context) } catch (_: Exception) {}
