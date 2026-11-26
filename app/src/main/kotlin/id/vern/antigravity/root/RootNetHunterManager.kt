@@ -271,7 +271,11 @@ object RootNetHunterManager {
             [ -d "/storage/emulated/0" ] && STORAGE_SRC="/storage/emulated/0"
             is_mounted "${'$'}CHROOT/sdcard" || mount -o bind "${'$'}STORAGE_SRC" "${'$'}CHROOT/sdcard" || true
             is_mounted "${'$'}CHROOT/storage/emulated/0" || mount -o bind "${'$'}STORAGE_SRC" "${'$'}CHROOT/storage/emulated/0" || true
-            is_mounted "${'$'}CHROOT/opt/antigravity" || mount -o bind '$escFiles' "${'$'}CHROOT/opt/antigravity" || true
+            if [ ! -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ]; then
+                umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true
+                mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true
+                mount -o bind '$escFiles' "${'$'}CHROOT/opt/antigravity" || true
+            fi
 
             ln -sfn /sdcard/Antigravity "${'$'}CHROOT/root/workspace" 2>/dev/null || true
             mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true
@@ -360,6 +364,7 @@ object RootNetHunterManager {
                         [ -d "${'$'}CHROOT/sys/kernel" ] || mount -t sysfs sysfs "${'$'}CHROOT/sys" 2>/dev/null || true
                         [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
                         [ -d "${'$'}CHROOT/storage/emulated/0/Android" ] || { mkdir -p "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; }
+                        [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
                         [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
                         exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "${'$'}1" 2>/dev/null || cd /root; shift; exec "${'$'}0" "${'$'}@"' "$tool" "${'$'}CHROOT_CWD" "${'$'}@"
                     fi
@@ -417,7 +422,7 @@ object RootNetHunterManager {
                 /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                 *) CHROOT_CWD="/sdcard/Antigravity" ;;
             esac
-            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0' '${'$'}CHROOT/system/bin'; ln -sfn /bin/sh '${'$'}CHROOT/system/bin/sh' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true;"
+            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0' '${'$'}CHROOT/opt/antigravity' '${'$'}CHROOT/system/bin'; ln -sfn /bin/sh '${'$'}CHROOT/system/bin/sh' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true; [ -x '${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv' ] || { umount -l '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; };"
             if [ "${'$'}#" -eq 0 ]; then
                 RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l"
             else
@@ -457,6 +462,7 @@ object RootNetHunterManager {
                         [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
                         [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
                         [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
+                        [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
                         exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l
                     fi
                 fi
@@ -480,6 +486,7 @@ object RootNetHunterManager {
                     [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
                     [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
                     [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
+                    [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
                     [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
                     exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; exec /bin/bash -c "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
                 fi

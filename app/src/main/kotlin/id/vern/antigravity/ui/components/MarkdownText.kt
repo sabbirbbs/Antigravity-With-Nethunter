@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -40,7 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -301,29 +302,40 @@ fun FormattedText(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val hasLinks = remember(annotatedString) {
-        annotatedString.getStringAnnotations("URL", 0, annotatedString.length).isNotEmpty()
-    }
-
-    if (hasLinks) {
-        @Suppress("DEPRECATION")
-        ClickableText(
-            text = annotatedString,
-            style = style,
-            modifier = modifier,
-            onClick = { offset ->
-                annotatedString.getStringAnnotations("URL", offset, offset).firstOrNull()?.let { annotation ->
-                    InAppPreviewController.handleClickedLink(context, annotation.item)
+    val linkedString = remember(annotatedString, context) {
+        val urlAnnotations = annotatedString.getStringAnnotations("URL", 0, annotatedString.length)
+        if (urlAnnotations.isEmpty()) {
+            annotatedString
+        } else {
+            buildAnnotatedString {
+                append(annotatedString)
+                urlAnnotations.forEach { ann ->
+                    addLink(
+                        clickable = LinkAnnotation.Clickable(
+                            tag = "URL",
+                            styles = TextLinkStyles(
+                                style = SpanStyle(
+                                    color = AntigravityBlue,
+                                    textDecoration = TextDecoration.Underline,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        ) {
+                            InAppPreviewController.handleClickedLink(context, ann.item)
+                        },
+                        start = ann.start,
+                        end = ann.end
+                    )
                 }
             }
-        )
-    } else {
-        Text(
-            text = annotatedString,
-            style = style,
-            modifier = modifier
-        )
+        }
     }
+
+    Text(
+        text = linkedString,
+        style = style,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -417,12 +429,15 @@ fun MarkdownText(
                                             .padding(vertical = 6.dp, horizontal = 8.dp)
                                     ) {
                                         element.headers.forEach { h ->
-                                            Text(
-                                                text = remember(h) { parseInlineMarkdown(h) },
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = textColor,
-                                                modifier = Modifier.width(120.dp).padding(horizontal = 4.dp)
+                                            val headerAnnotated = remember(h) { parseInlineMarkdown(h) }
+                                            FormattedText(
+                                                annotatedString = headerAnnotated,
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = textColor
+                                                ),
+                                                modifier = Modifier.width(140.dp).padding(horizontal = 4.dp)
                                             )
                                         }
                                     }
@@ -430,11 +445,14 @@ fun MarkdownText(
                                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                                         Row(modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
                                             row.forEach { cell ->
-                                                Text(
-                                                    text = remember(cell) { parseInlineMarkdown(cell) },
-                                                    fontSize = 11.sp,
-                                                    color = textColor,
-                                                    modifier = Modifier.width(120.dp).padding(horizontal = 4.dp)
+                                                val cellAnnotated = remember(cell) { parseInlineMarkdown(cell) }
+                                                FormattedText(
+                                                    annotatedString = cellAnnotated,
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        fontSize = 11.sp,
+                                                        color = textColor
+                                                    ),
+                                                    modifier = Modifier.width(140.dp).padding(horizontal = 4.dp)
                                                 )
                                             }
                                         }
