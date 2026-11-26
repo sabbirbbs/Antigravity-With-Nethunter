@@ -276,6 +276,10 @@ object RootNetHunterManager {
                 mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true
                 mount -o bind '$escFiles' "${'$'}CHROOT/opt/antigravity" || true
             fi
+            if [ ! -e "${'$'}CHROOT$escFiles/engine/bin/agy" ]; then
+                mkdir -p "${'$'}CHROOT$escFiles" 2>/dev/null || true
+                mount -o bind '$escFiles' "${'$'}CHROOT$escFiles" || true
+            fi
 
             ln -sfn /sdcard/Antigravity "${'$'}CHROOT/root/workspace" 2>/dev/null || true
             mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true
@@ -646,24 +650,25 @@ object RootNetHunterManager {
         val ruleText = """
             # Root & Kali NetHunter Android Environment (Live Context)
             
-            - **Current OS & Shell Context**: You are running inside a **rooted Android 11+ ARM64 device (`uid=0`, Magisk Root: `${status.hasRoot}`)** paired with **Kali NetHunter Chroot (`$chrootText`)**.
+            - **Current OS & Shell Context**: You are running natively inside **Kali NetHunter (`$chrootText`, `uid=0` Root: `${status.hasRoot}`)** on a **rooted Android ARM64 device**.
             - **Active Execution Mode**: `${status.effectiveMode.displayName}`
             - **Simultaneous File Access**:
-              - Android shared storage (`/storage/emulated/0`, `/sdcard`) is bind-mounted at `/sdcard` and `/storage/emulated/0` inside Kali NetHunter.
-              - Default shared workspace: `$wsDefault` (identical to `/sdcard/Antigravity` in Kali).
-              - Kali Linux root filesystem (`/root`, `/home`, `/var/www`, etc.) is active directly when running commands in `KALI_NETHUNTER` mode.
+              - Android shared storage (`/storage/emulated/0` and `/sdcard`) is bind-mounted directly inside your Kali Linux environment at `/sdcard` and `/storage/emulated/0`.
+              - Default shared workspace: `$wsDefault` (identical to `/sdcard/Antigravity`).
+              - All Kali tools (`nmap`, `sqlmap`, `python3`, `bash`, `node`, `npm`, `git`, `curl`, `ip`, `ss`) run natively without `su` or `chroot` wrappers.
             - **Phone LAN Wi-Fi IP**: `$wifiIp`
             
             ## Critical Execution Rules (Read Carefully!)
-            1. **NEVER run `su` or `sudo` in your commands!** Your shell already executes with full `uid=0` root privileges. Running `su` inside Android/glibc/chroot causes `su: unknown user root` or PAM errors and is completely unnecessary.
-            2. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`** (or `setsid ... >/tmp/srv.log 2>&1 </dev/null &`) so they stay alive after your turn ends:
+            1. **NEVER run `su` or `sudo`!** Your shell already executes as `uid=0` root.
+            2. **Fast Non-Blocking Network Commands**: When scanning LAN devices on mobile Wi-Fi, ALWAYS skip slow reverse-DNS stalls (`-n`) and cap host timeouts (e.g., `nmap -sn -n -T4 --max-retries 1 --host-timeout 3s 192.168.1.0/24` or `ip -4 neigh show`) with `WaitMsBeforeAsync=10000`.
+            3. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`** (`/opt/antigravity/usr/bin/agy-srv`):
                - Python: `agy-srv start web "python3 -m http.server 8000 --bind 0.0.0.0"`
                - Node/Vite: `agy-srv start vite "npm run dev -- --host 0.0.0.0 --port 5173"`
                - Next.js: `agy-srv start next "npx next dev -H 0.0.0.0 -p 3000"`
                - Flask: `agy-srv start flask "flask run --host=0.0.0.0 --port=5000"`
                Check status/ports with `agy-srv list`, `agy-srv logs <name>`, `agy-srv ports`.
                Share clickable links `http://127.0.0.1:<port>` (for in-app browser preview) and `http://$wifiIp:<port>` (for LAN Wi-Fi).
-            3. **File Links:** Output standard `[filename](file:///exact/path)` links—Antigravity opens `file:///` links directly in the built-in preview/editor.
+            4. **File Links:** Output standard `[filename](file:///exact/path)` links—Antigravity opens `file:///` links directly in the built-in preview/editor.
         """.trimIndent() + "\n"
 
         listOf(
@@ -777,6 +782,11 @@ object RootNetHunterManager {
         if (!workspacePath.isNullOrBlank()) {
             val wsRel = File(workspacePath, clean.trimStart('/'))
             if (pathExistsWithRootFallback(wsRel)) return wsRel
+        }
+
+        if (clean.startsWith("/opt/antigravity/")) {
+            val mapped = File(context.filesDir, clean.removePrefix("/opt/antigravity/"))
+            if (pathExistsWithRootFallback(mapped)) return mapped
         }
 
         val chroot = cachedStatus?.chrootPath ?: getSavedChrootPath(context) ?: "/data/local/nhsystem/kali-arm64"

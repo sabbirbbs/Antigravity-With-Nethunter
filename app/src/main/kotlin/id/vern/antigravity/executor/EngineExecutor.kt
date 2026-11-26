@@ -328,58 +328,27 @@ object EngineExecutor {
 
         if (ldBin.exists() && agyBin.exists()) {
             return@withContext try {
-                val libraryPaths = listOf(libDir.absolutePath, prefixLib.absolutePath)
-                    .filter { File(it).exists() }
-                    .joinToString(":")
-
-                val cmdList = mutableListOf(
-                    ldBin.absolutePath,
-                    "--library-path",
-                    libraryPaths,
-                    agyBin.absolutePath
-                ).apply { addAll(args) }
-
-                val pb = ProcessBuilder(cmdList)
-                pb.directory(targetCwd)
-
-                val gitExecDir = File(prefixDir, "libexec/git-core")
-                val validGitExec = if (gitExecDir.exists() && gitExecDir.isDirectory) gitExecDir else null
-                if (validGitExec != null && !isGitPermissionsSet) {
-                    validGitExec.listFiles()?.forEach { file ->
-                        file.setReadable(true, false)
-                        file.setExecutable(true, false)
-                        try { Os.chmod(file.absolutePath, 493) } catch (e: Exception) {}
-                    }
-                    isGitPermissionsSet = true
+                val execMode = RootNetHunterManager.getEffectiveExecutionMode(context)
+                val chrootPath = RootNetHunterManager.cachedStatus?.chrootPath
+                if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
+                    RootNetHunterManager.ensureChrootMounted(context, chrootPath, targetCwd)
                 }
-                val validGitTemplate = File(prefixDir, "share/git-core/templates").apply { mkdirs() }
-
-                val env = pb.environment()
-                env.remove("LD_PRELOAD")
-                env["PREFIX"] = prefixDir.absolutePath
-                env["HOME"] = homeDir.absolutePath
-                env["TMPDIR"] = tmpDir.absolutePath
-                env["PWD"] = targetCwd.absolutePath
-                env["GIT_CONFIG_NOSYSTEM"] = "1"
-                env["GIT_ATTR_NOSYSTEM"] = "1"
-                env["GIT_TERMINAL_PROMPT"] = "0"
-                if (validGitExec != null) env["GIT_EXEC_PATH"] = validGitExec.absolutePath
-                env["GIT_TEMPLATE_DIR"] = validGitTemplate.absolutePath
-                env["TERM"] = "xterm-256color"
-                env["LANG"] = "en_US.UTF-8"
-                val extraGitPath = if (validGitExec != null) ":${validGitExec.absolutePath}" else ""
-                env["PATH"] = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system/bin"
-                val ldPaths = mutableListOf(prefixLib.absolutePath, "/system/lib64")
-                env["LD_LIBRARY_PATH"] = ldPaths.joinToString(":")
-                if (certFile.exists()) {
-                    env["SSL_CERT_FILE"] = certFile.absolutePath
-                    env["CURL_CA_BUNDLE"] = certFile.absolutePath
-                }
-                env["GODEBUG"] = "netdns=cgo"
-                env["AGY_APPLICATION_ID"] = context.packageName
-                env["APPLICATION_ID"] = context.packageName
-                env["ANTIGRAVITY_APP_DATA_DIR"] = File(homeDir, ".gemini/antigravity-cli").apply { mkdirs() }.absolutePath
-
+                RootNetHunterManager.deployRootAndNetHunterTools(context)
+                val pb = buildAgyProcessBuilder(
+                    context = context,
+                    execMode = execMode,
+                    chrootPath = chrootPath,
+                    targetCwd = targetCwd,
+                    ldBin = ldBin,
+                    agyBin = agyBin,
+                    prefixDir = prefixDir,
+                    prefixLib = prefixLib,
+                    libDir = libDir,
+                    homeDir = homeDir,
+                    tmpDir = tmpDir,
+                    certFile = certFile,
+                    args = args
+                )
                 streamProcess(pb, onOutputLine)
             } catch (e: Exception) {
                 onOutputLine("Direct engine execution failed: ${e.message}", true)
@@ -442,6 +411,163 @@ object EngineExecutor {
 
         onOutputLine("Antigravity engine binaries not found. Please install via setup wizard.", true)
         -1
+    }
+
+    private fun buildAgyProcessBuilder(
+        context: Context,
+        execMode: ExecutionMode,
+        chrootPath: String?,
+        targetCwd: File,
+        ldBin: File,
+        agyBin: File,
+        prefixDir: File,
+        prefixLib: File,
+        libDir: File,
+        homeDir: File,
+        tmpDir: File,
+        certFile: File,
+        args: List<String>
+    ): ProcessBuilder {
+        val libraryPaths = listOf(libDir.absolutePath, prefixLib.absolutePath)
+            .filter { File(it).exists() }
+            .joinToString(":")
+        val cmdList = mutableListOf(
+            ldBin.absolutePath,
+            "--library-path",
+            libraryPaths,
+            agyBin.absolutePath
+        ).apply { addAll(args) }
+
+        val gitExecDir = File(prefixDir, "libexec/git-core")
+        val validGitExec = if (gitExecDir.exists() && gitExecDir.isDirectory) gitExecDir else null
+        if (validGitExec != null && !isGitPermissionsSet) {
+            validGitExec.listFiles()?.forEach { file ->
+                file.setReadable(true, false)
+                file.setExecutable(true, false)
+                try { Os.chmod(file.absolutePath, 493) } catch (_: Exception) {}
+            }
+            isGitPermissionsSet = true
+        }
+        val validGitTemplate = File(prefixDir, "share/git-core/templates").apply { mkdirs() }
+        val extraGitPath = if (validGitExec != null) ":${validGitExec.absolutePath}" else ""
+        val appDataDirStr = File(homeDir, ".gemini/antigravity-cli").apply { mkdirs() }.absolutePath
+        val filesDir = context.filesDir
+        val engineDir = File(filesDir, "engine")
+        val esc = RootNetHunterManager::shellEscape
+
+        if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
+            val chrootCwd = RootNetHunterManager.translatePathForChroot(targetCwd.absolutePath, chrootPath)
+            val escChroot = esc(chrootPath)
+            val escFiles = esc(filesDir.absolutePath)
+            val kaliCert = File(chrootPath, "etc/ssl/certs/ca-certificates.crt")
+            val effectiveCert = if (kaliCert.exists()) "/etc/ssl/certs/ca-certificates.crt" else certFile.absolutePath
+            val cmdJoined = cmdList.joinToString(" ") { "'${esc(it)}'" }
+            val kaliPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin:/opt/antigravity/engine/bin"
+
+            val chrootLaunch = buildString {
+                append("umask 0000; unset LD_PRELOAD LD_LIBRARY_PATH; ")
+                append("CHROOT='$escChroot'; ")
+                append("mkdir -p \"\$CHROOT/proc\" \"\$CHROOT/sys\" \"\$CHROOT/dev\" \"\$CHROOT/dev/pts\" \"\$CHROOT/dev/shm\" \"\$CHROOT/sdcard\" \"\$CHROOT/storage/emulated/0\" \"\$CHROOT/opt/antigravity\" \"\$CHROOT$escFiles\" \"\$CHROOT/tmp\" 2>/dev/null || true; ")
+                append("[ -e \"\$CHROOT/proc/uptime\" ] || mount -t proc proc \"\$CHROOT/proc\" 2>/dev/null || true; ")
+                append("[ -d \"\$CHROOT/sys/kernel\" ] || mount -t sysfs sysfs \"\$CHROOT/sys\" 2>/dev/null || true; ")
+                append("[ -d \"\$CHROOT/dev/pts\" ] || { mount -o bind /dev \"\$CHROOT/dev\" 2>/dev/null || true; mount -t devpts devpts \"\$CHROOT/dev/pts\" -o gid=5,mode=620 2>/dev/null || mount -o bind /dev/pts \"\$CHROOT/dev/pts\" 2>/dev/null || true; }; ")
+                append("grep -qs \" \$CHROOT/dev/shm \" /proc/mounts || mount -t tmpfs -o size=256M tmpfs \"\$CHROOT/dev/shm\" 2>/dev/null || true; ")
+                append("STORAGE_SRC='/data/media/0'; [ -d '/storage/emulated/0' ] && STORAGE_SRC='/storage/emulated/0'; ")
+                append("[ -d \"\$CHROOT/sdcard/Android\" ] || mount -o bind \"\$STORAGE_SRC\" \"\$CHROOT/sdcard\" 2>/dev/null || true; ")
+                append("[ -d \"\$CHROOT/storage/emulated/0/Android\" ] || mount -o bind \"\$STORAGE_SRC\" \"\$CHROOT/storage/emulated/0\" 2>/dev/null || true; ")
+                append("[ -x \"\$CHROOT/opt/antigravity/usr/bin/agy-srv\" ] || { umount -l \"\$CHROOT/opt/antigravity\" 2>/dev/null || true; mount -o bind '$escFiles' \"\$CHROOT/opt/antigravity\" 2>/dev/null || true; }; ")
+                append("[ -e \"\$CHROOT$escFiles/engine/bin/agy\" ] || mount -o bind '$escFiles' \"\$CHROOT$escFiles\" 2>/dev/null || true; ")
+                append("[ -s \"\$CHROOT/etc/resolv.conf\" ] || printf 'nameserver 8.8.8.8\\nnameserver 1.1.1.1\\n' > \"\$CHROOT/etc/resolv.conf\" 2>/dev/null || true; ")
+                append("[ -s \"\$CHROOT/etc/hosts\" ] || printf '127.0.0.1 localhost\\n::1 localhost ip6-localhost\\n' > \"\$CHROOT/etc/hosts\" 2>/dev/null || true; ")
+                append("chmod 1777 \"\$CHROOT/tmp\" 2>/dev/null || true; ")
+                append("exec chroot \"\$CHROOT\" /usr/bin/env -i ")
+                append("HOME='${esc(homeDir.absolutePath)}' ")
+                append("PREFIX='${esc(prefixDir.absolutePath)}' ")
+                append("TMPDIR='/tmp' ")
+                append("PWD='${esc(chrootCwd)}' ")
+                append("SHELL='/bin/bash' ")
+                append("TERM='xterm-256color' ")
+                append("LANG='C.UTF-8' ")
+                append("PATH='$kaliPath' ")
+                append("DEBIAN_FRONTEND='noninteractive' ")
+                append("GODEBUG='netdns=cgo' ")
+                append("GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 ")
+                append("SSL_CERT_FILE='${esc(effectiveCert)}' ")
+                append("CURL_CA_BUNDLE='${esc(effectiveCert)}' ")
+                append("GIT_SSL_CAINFO='${esc(effectiveCert)}' ")
+                append("AGY_EXEC_MODE='${execMode.name}' ")
+                append("AGY_CHROOT_DIR='$escChroot' ")
+                append("AGY_APPLICATION_ID='${context.packageName}' APPLICATION_ID='${context.packageName}' ")
+                append("ANTIGRAVITY_APP_DATA_DIR='${esc(appDataDirStr)}' ")
+                append("/bin/bash -c 'cd \"\$1\" 2>/dev/null || cd /root; shift; exec \"\$@\"' _ '${esc(chrootCwd)}' $cmdJoined")
+            }
+            return ProcessBuilder("su", "-mm", "-c", chrootLaunch)
+        }
+
+        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system_ext/bin:/system_ext/xbin:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
+        val nhShellFile = File(prefixDir, "bin/agy-nh-shell")
+        val shellToUse = if (execMode != ExecutionMode.SANDBOX && nhShellFile.canExecute()) {
+            nhShellFile.absolutePath
+        } else {
+            File(prefixDir, "bin/bash").takeIf { it.canExecute() }?.absolutePath ?: "/system/bin/sh"
+        }
+
+        if (execMode != ExecutionMode.SANDBOX) {
+            val cmdJoined = cmdList.joinToString(" ") { "'${esc(it)}'" }
+            val rootLaunch = buildString {
+                append("umask 0000; unset LD_PRELOAD; ")
+                append("export PREFIX='${esc(prefixDir.absolutePath)}'; ")
+                append("export HOME='${esc(homeDir.absolutePath)}'; ")
+                append("export TMPDIR='${esc(tmpDir.absolutePath)}'; ")
+                append("export PWD='${esc(targetCwd.absolutePath)}'; ")
+                append("export SHELL='${esc(shellToUse)}'; ")
+                append("export AGY_EXEC_MODE='${execMode.name}'; ")
+                if (!chrootPath.isNullOrBlank()) append("export AGY_CHROOT_DIR='${esc(chrootPath)}'; ")
+                append("export GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0; ")
+                if (validGitExec != null) append("export GIT_EXEC_PATH='${esc(validGitExec.absolutePath)}'; ")
+                append("export GIT_TEMPLATE_DIR='${esc(validGitTemplate.absolutePath)}'; ")
+                append("export TERM=xterm-256color LANG=en_US.UTF-8 GODEBUG=netdns=cgo; ")
+                append("export PATH='${esc(pathStr)}'; ")
+                if (certFile.exists()) {
+                    append("export SSL_CERT_FILE='${esc(certFile.absolutePath)}'; ")
+                    append("export CURL_CA_BUNDLE='${esc(certFile.absolutePath)}'; ")
+                }
+                append("export AGY_APPLICATION_ID='${context.packageName}' APPLICATION_ID='${context.packageName}'; ")
+                append("export ANTIGRAVITY_APP_DATA_DIR='${esc(appDataDirStr)}'; ")
+                append("cd '${esc(targetCwd.absolutePath)}' 2>/dev/null || cd '${esc(homeDir.absolutePath)}'; ")
+                append("exec $cmdJoined")
+            }
+            return ProcessBuilder("su", "-mm", "-c", rootLaunch)
+        }
+
+        return ProcessBuilder(cmdList).apply {
+            directory(targetCwd)
+            val env = environment()
+            env.remove("LD_PRELOAD")
+            env["PREFIX"] = prefixDir.absolutePath
+            env["HOME"] = homeDir.absolutePath
+            env["TMPDIR"] = tmpDir.absolutePath
+            env["PWD"] = targetCwd.absolutePath
+            env["SHELL"] = shellToUse
+            env["AGY_EXEC_MODE"] = execMode.name
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            env["GIT_ATTR_NOSYSTEM"] = "1"
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            if (validGitExec != null) env["GIT_EXEC_PATH"] = validGitExec.absolutePath
+            env["GIT_TEMPLATE_DIR"] = validGitTemplate.absolutePath
+            env["TERM"] = "xterm-256color"
+            env["LANG"] = "en_US.UTF-8"
+            env["PATH"] = pathStr
+            env["LD_LIBRARY_PATH"] = "${prefixLib.absolutePath}:/system/lib64"
+            if (certFile.exists()) {
+                env["SSL_CERT_FILE"] = certFile.absolutePath
+                env["CURL_CA_BUNDLE"] = certFile.absolutePath
+            }
+            env["GODEBUG"] = "netdns=cgo"
+            env["AGY_APPLICATION_ID"] = context.packageName
+            env["APPLICATION_ID"] = context.packageName
+            env["ANTIGRAVITY_APP_DATA_DIR"] = appDataDirStr
+        }
     }
 
     @Volatile
@@ -542,6 +668,11 @@ object EngineExecutor {
             defaultWs.exists() -> defaultWs
             else -> homeDir
         }
+        val effectiveCwd = if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
+            RootNetHunterManager.translatePathForChroot(targetCwd.absolutePath, chrootPath)
+        } else {
+            targetCwd.absolutePath
+        }
 
         val engineDir = File(filesDir, "engine")
         val prefixDir = File(filesDir, "usr")
@@ -565,96 +696,33 @@ object EngineExecutor {
             RootNetHunterManager.deployRootAndNetHunterTools(context)
         } catch (_: Exception) {}
 
-        val libraryPaths = listOf(libDir.absolutePath, prefixLib.absolutePath)
-            .filter { File(it).exists() }
-            .joinToString(":")
-
-        val cmdList = mutableListOf(
-            ldBin.absolutePath,
-            "--library-path",
-            libraryPaths,
-            agyBin.absolutePath,
-            "acp",
-            "--dangerously-skip-permissions"
-        )
+        val acpArgs = mutableListOf("acp", "--dangerously-skip-permissions")
         if (workingDir != null && (workingDir.exists() || execMode != ExecutionMode.SANDBOX)) {
-            cmdList.add("--add-dir")
-            cmdList.add(workingDir.absolutePath)
+            acpArgs.add("--add-dir")
+            acpArgs.add(effectiveCwd)
         } else if (defaultWs.exists()) {
-            cmdList.add("--add-dir")
-            cmdList.add(defaultWs.absolutePath)
+            val defChroot = if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
+                RootNetHunterManager.translatePathForChroot(defaultWs.absolutePath, chrootPath)
+            } else defaultWs.absolutePath
+            acpArgs.add("--add-dir")
+            acpArgs.add(defChroot)
         }
 
-        val gitExecDir = File(prefixDir, "libexec/git-core")
-        val validGitExec = if (gitExecDir.exists() && gitExecDir.isDirectory) gitExecDir else null
-        val validGitTemplate = File(prefixDir, "share/git-core/templates").apply { mkdirs() }
-        val extraGitPath = if (validGitExec != null) ":${validGitExec.absolutePath}" else ""
-        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system_ext/bin:/system_ext/xbin:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
-        val nhShellFile = File(prefixDir, "bin/agy-nh-shell")
-        val shellToUse = if (execMode != ExecutionMode.SANDBOX && nhShellFile.canExecute()) {
-            nhShellFile.absolutePath
-        } else {
-            File(prefixDir, "bin/bash").takeIf { it.canExecute() }?.absolutePath ?: "/system/bin/sh"
-        }
-        val appDataDirStr = File(homeDir, ".gemini/antigravity-cli").apply { mkdirs() }.absolutePath
-
-        val pb = if (execMode != ExecutionMode.SANDBOX) {
-            val esc = RootNetHunterManager::shellEscape
-            val cmdJoined = cmdList.joinToString(" ") { "'${esc(it)}'" }
-            val rootLaunch = buildString {
-                append("umask 0000; unset LD_PRELOAD; ")
-                append("export PREFIX='${esc(prefixDir.absolutePath)}'; ")
-                append("export HOME='${esc(homeDir.absolutePath)}'; ")
-                append("export TMPDIR='${esc(tmpDir.absolutePath)}'; ")
-                append("export PWD='${esc(targetCwd.absolutePath)}'; ")
-                append("export SHELL='${esc(shellToUse)}'; ")
-                append("export AGY_EXEC_MODE='${execMode.name}'; ")
-                if (!chrootPath.isNullOrBlank()) append("export AGY_CHROOT_DIR='${esc(chrootPath)}'; ")
-                append("export GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0; ")
-                if (validGitExec != null) append("export GIT_EXEC_PATH='${esc(validGitExec.absolutePath)}'; ")
-                append("export GIT_TEMPLATE_DIR='${esc(validGitTemplate.absolutePath)}'; ")
-                append("export TERM=xterm-256color LANG=en_US.UTF-8 GODEBUG=netdns=cgo; ")
-                append("export PATH='${esc(pathStr)}'; ")
-                if (certFile.exists()) {
-                    append("export SSL_CERT_FILE='${esc(certFile.absolutePath)}'; ")
-                    append("export CURL_CA_BUNDLE='${esc(certFile.absolutePath)}'; ")
-                }
-                append("export AGY_APPLICATION_ID='${context.packageName}' APPLICATION_ID='${context.packageName}'; ")
-                append("export ANTIGRAVITY_APP_DATA_DIR='${esc(appDataDirStr)}'; ")
-                append("cd '${esc(targetCwd.absolutePath)}' 2>/dev/null || cd '${esc(homeDir.absolutePath)}'; ")
-                append("exec $cmdJoined")
-            }
-            ProcessBuilder("su", "-mm", "-c", rootLaunch)
-        } else {
-            ProcessBuilder(cmdList).apply {
-                directory(targetCwd)
-                val env = environment()
-                env.remove("LD_PRELOAD")
-                env["PREFIX"] = prefixDir.absolutePath
-                env["HOME"] = homeDir.absolutePath
-                env["TMPDIR"] = tmpDir.absolutePath
-                env["PWD"] = targetCwd.absolutePath
-                env["SHELL"] = shellToUse
-                env["AGY_EXEC_MODE"] = execMode.name
-                env["GIT_CONFIG_NOSYSTEM"] = "1"
-                env["GIT_ATTR_NOSYSTEM"] = "1"
-                env["GIT_TERMINAL_PROMPT"] = "0"
-                if (validGitExec != null) env["GIT_EXEC_PATH"] = validGitExec.absolutePath
-                env["GIT_TEMPLATE_DIR"] = validGitTemplate.absolutePath
-                env["TERM"] = "xterm-256color"
-                env["LANG"] = "en_US.UTF-8"
-                env["PATH"] = pathStr
-                env["LD_LIBRARY_PATH"] = "${prefixLib.absolutePath}:/system/lib64"
-                if (certFile.exists()) {
-                    env["SSL_CERT_FILE"] = certFile.absolutePath
-                    env["CURL_CA_BUNDLE"] = certFile.absolutePath
-                }
-                env["GODEBUG"] = "netdns=cgo"
-                env["AGY_APPLICATION_ID"] = context.packageName
-                env["APPLICATION_ID"] = context.packageName
-                env["ANTIGRAVITY_APP_DATA_DIR"] = appDataDirStr
-            }
-        }
+        val pb = buildAgyProcessBuilder(
+            context = context,
+            execMode = execMode,
+            chrootPath = chrootPath,
+            targetCwd = targetCwd,
+            ldBin = ldBin,
+            agyBin = agyBin,
+            prefixDir = prefixDir,
+            prefixLib = prefixLib,
+            libDir = libDir,
+            homeDir = homeDir,
+            tmpDir = tmpDir,
+            certFile = certFile,
+            args = acpArgs
+        )
 
         val process = try {
             pb.start()
@@ -799,7 +867,7 @@ object EngineExecutor {
                                 }
 
                                 val status = upd.optString("status").lowercase()
-                                val state = if (status == "completed" || status == "failed" || status == "cancelled" || status == "done") {
+                                val state = if (status in setOf("completed", "failed", "cancelled", "canceled", "done", "error", "rejected", "timed_out")) {
                                     if (toolCallId.isNotBlank()) toolCallCache.remove(toolCallId)
                                     "DONE"
                                 } else {
@@ -904,7 +972,7 @@ object EngineExecutor {
             if (!sessionToResume.isNullOrBlank()) {
                 sendRpc(nextId, "session/resume", JSONObject().apply {
                     put("sessionId", sessionToResume)
-                    put("cwd", targetCwd.absolutePath)
+                    put("cwd", effectiveCwd)
                     put("mcpServers", JSONArray())
                 })
                 val resumed = readUntilResponse(nextId++)
@@ -916,7 +984,7 @@ object EngineExecutor {
             }
             if (sessionResp == null) {
                 sendRpc(nextId, "session/new", JSONObject().apply {
-                    put("cwd", targetCwd.absolutePath)
+                    put("cwd", effectiveCwd)
                     put("mcpServers", JSONArray())
                 })
                 sessionResp = readUntilResponse(nextId++)

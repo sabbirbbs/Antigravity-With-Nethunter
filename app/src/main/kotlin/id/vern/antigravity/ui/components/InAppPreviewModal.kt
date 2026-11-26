@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,7 +65,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -252,8 +256,9 @@ private fun InAppWebBrowserContent(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.fillMaxWidth()
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().zIndex(2f)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
                 Row(
@@ -444,54 +449,60 @@ private fun InAppWebBrowserContent(
             }
         }
 
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = true
-                    settings.allowContentAccess = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    settings.builtInZoomControls = true
-                    settings.displayZoomControls = false
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            isLoading = true
-                            lastError = null
-                            if (!url.isNullOrBlank()) {
-                                currentUrl = url
-                                urlInput = url
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = true
+                        settings.allowContentAccess = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                isLoading = true
+                                lastError = null
+                                if (!url.isNullOrBlank()) {
+                                    currentUrl = url
+                                    urlInput = url
+                                }
                             }
-                        }
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            isLoading = false
-                        }
-                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                            if (request?.isForMainFrame == true) {
+                            override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
-                                lastError = error?.description?.toString() ?: "Connection failed"
+                            }
+                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                                if (request?.isForMainFrame == true) {
+                                    isLoading = false
+                                    lastError = error?.description?.toString() ?: "Connection failed"
+                                }
+                            }
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val reqUrl = request?.url?.toString() ?: return false
+                                if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
+                                    return false
+                                }
+                                InAppPreviewController.handleClickedLink(ctx, reqUrl)
+                                return true
                             }
                         }
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            val reqUrl = request?.url?.toString() ?: return false
-                            if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
-                                return false
-                            }
-                            InAppPreviewController.handleClickedLink(ctx, reqUrl)
-                            return true
-                        }
+                        loadUrl(initialUrl)
+                        webViewRef = this
                     }
-                    loadUrl(initialUrl)
-                    webViewRef = this
-                }
-            },
-            update = { view ->
-                webViewRef = view
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+                },
+                update = { view ->
+                    webViewRef = view
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
@@ -540,8 +551,9 @@ private fun InAppLocalFilePreviewContent(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.fillMaxWidth()
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().zIndex(2f)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
                 Row(
@@ -665,123 +677,133 @@ private fun InAppLocalFilePreviewContent(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
         }
 
-        when {
-            isDir -> {
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                    items(dirEntries, key = { it.absolutePath }) { entry ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { currentFile = File(entry.absolutePath) }
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (entry.isDirectory) {
-                                Icon(
-                                    Icons.Default.Folder,
-                                    contentDescription = null,
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                            }
-                            Text(
-                                text = entry.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (entry.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (!entry.isDirectory) {
-                                Text(
-                                    text = "${entry.sizeBytes} B",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                    }
-                }
-            }
-            isImage && imageTempFile != null -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = imageTempFile,
-                        contentDescription = currentFile.name,
-                        modifier = Modifier.fillMaxSize().padding(16.dp)
-                    )
-                }
-            }
-            !showSourceCode && isHtml && textContent != null -> {
-                AndroidView(
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.allowFileAccess = true
-                            settings.allowContentAccess = true
-                            settings.useWideViewPort = true
-                            settings.loadWithOverviewMode = true
-                            settings.builtInZoomControls = true
-                            settings.displayZoomControls = false
-                            setOnTouchListener { v, event ->
-                                when (event.actionMasked) {
-                                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> v.parent?.requestDisallowInterceptTouchEvent(true)
-                                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.parent?.requestDisallowInterceptTouchEvent(false)
-                                }
-                                false
-                            }
-                            webViewClient = WebViewClient()
-                        }
-                    },
-                    update = { webView ->
-                        val base = currentFile.parentFile?.let { "file://${it.absolutePath}/" }
-                        val mime = if (ext == "svg") "image/svg+xml" else "text/html"
-                        webView.loadDataWithBaseURL(base, textContent!!, mime, "UTF-8", null)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            !showSourceCode && isMarkdown && textContent != null -> {
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    item {
-                        MarkdownText(markdown = textContent!!)
-                    }
-                }
-            }
-            textContent != null -> {
-                val lines = remember(textContent) { textContent!!.lines() }
-                SelectionContainer {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF0D1117))
-                            .horizontalScroll(rememberScrollState())
-                            .padding(10.dp)
-                    ) {
-                        itemsIndexed(lines) { index, lineText ->
-                            val lineNum = index + 1
-                            val isHighlight = targetLine != null && lineNum == targetLine
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+            when {
+                isDir -> {
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                        items(dirEntries, key = { it.absolutePath }) { entry ->
                             Row(
                                 modifier = Modifier
-                                    .background(if (isHighlight) Color(0xFF1E3A5F) else Color.Transparent)
-                                    .padding(vertical = 1.dp)
+                                    .fillMaxWidth()
+                                    .clickable { currentFile = File(entry.absolutePath) }
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                if (entry.isDirectory) {
+                                    Icon(
+                                        Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF59E0B),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                }
                                 Text(
-                                    text = String.format(Locale.US, "%4d ", lineNum),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF64748B)
+                                    text = entry.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (entry.isDirectory) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Text(
-                                    text = lineText,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFFE2E8F0)
+                                if (!entry.isDirectory) {
+                                    Text(
+                                        text = "${entry.sizeBytes} B",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                        }
+                    }
+                }
+                isImage && imageTempFile != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = imageTempFile,
+                            contentDescription = currentFile.name,
+                            modifier = Modifier.fillMaxSize().padding(16.dp)
+                        )
+                    }
+                }
+                !showSourceCode && isHtml && textContent != null -> {
+                    AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
                                 )
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.allowFileAccess = true
+                                settings.allowContentAccess = true
+                                settings.useWideViewPort = true
+                                settings.loadWithOverviewMode = true
+                                settings.builtInZoomControls = true
+                                settings.displayZoomControls = false
+                                setOnTouchListener { v, event ->
+                                    when (event.actionMasked) {
+                                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> v.parent?.requestDisallowInterceptTouchEvent(true)
+                                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.parent?.requestDisallowInterceptTouchEvent(false)
+                                    }
+                                    false
+                                }
+                                webViewClient = WebViewClient()
+                            }
+                        },
+                        update = { webView ->
+                            val cacheKey = "${currentFile.absolutePath}:${textContent.hashCode()}"
+                            if (webView.tag != cacheKey) {
+                                webView.tag = cacheKey
+                                val base = currentFile.parentFile?.let { "file://${it.absolutePath}/" }
+                                val mime = if (ext == "svg") "image/svg+xml" else "text/html"
+                                webView.loadDataWithBaseURL(base, textContent!!, mime, "UTF-8", null)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                !showSourceCode && isMarkdown && textContent != null -> {
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        item {
+                            MarkdownText(markdown = textContent!!)
+                        }
+                    }
+                }
+                textContent != null -> {
+                    val lines = remember(textContent) { textContent!!.lines() }
+                    SelectionContainer {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF0D1117))
+                                .horizontalScroll(rememberScrollState())
+                                .padding(10.dp)
+                        ) {
+                            itemsIndexed(lines) { index, lineText ->
+                                val lineNum = index + 1
+                                val isHighlight = targetLine != null && lineNum == targetLine
+                                Row(
+                                    modifier = Modifier
+                                        .background(if (isHighlight) Color(0xFF1E3A5F) else Color.Transparent)
+                                        .padding(vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "%4d ", lineNum),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    Text(
+                                        text = lineText,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFFE2E8F0)
+                                    )
+                                }
                             }
                         }
                     }
