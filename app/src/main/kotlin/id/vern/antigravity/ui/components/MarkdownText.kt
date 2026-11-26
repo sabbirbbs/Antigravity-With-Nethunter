@@ -80,11 +80,18 @@ private fun parseTableRow(line: String): List<String> {
         .map { it.trim() }
 }
 
+private fun parseHeadingLevel(trimmed: String): Int? {
+    if (!trimmed.startsWith("#")) return null
+    val level = trimmed.takeWhile { it == '#' }.length
+    return if (level in 1..6 && trimmed.getOrNull(level) == ' ') level else null
+}
+
 fun parseMarkdown(content: String): List<MarkdownElement> {
     val elements = mutableListOf<MarkdownElement>()
     val lines = content.lines()
     var i = 0
     while (i < lines.size) {
+        val loopStartI = i
         val line = lines[i]
         val trimmed = line.trim()
 
@@ -121,14 +128,12 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
             continue
         }
 
-        if (trimmed.startsWith("#")) {
-            val level = trimmed.takeWhile { it == '#' }.length
-            if (level in 1..6 && trimmed.getOrNull(level) == ' ') {
-                val text = trimmed.substring(level).trim()
-                elements.add(MarkdownElement.Heading(level, text))
-                i++
-                continue
-            }
+        val headingLevel = parseHeadingLevel(trimmed)
+        if (headingLevel != null) {
+            val text = trimmed.substring(headingLevel).trim()
+            elements.add(MarkdownElement.Heading(headingLevel, text))
+            i++
+            continue
         }
 
         if (trimmed.startsWith(">")) {
@@ -171,12 +176,12 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
             val curTrim = cur.trim()
             if (curTrim.isEmpty() ||
                 curTrim.startsWith("```") ||
-                curTrim.startsWith("#") ||
+                parseHeadingLevel(curTrim) != null ||
                 curTrim.startsWith(">") ||
-                curTrim == "---" ||
+                curTrim == "---" || curTrim == "***" || curTrim == "___" ||
                 (curTrim.contains("|") && i + 1 < lines.size && TABLE_SEP_REGEX.matches(lines[i + 1].trim())) ||
-                BULLET_PREFIX_REGEX.containsMatchIn(curTrim) ||
-                NUM_PREFIX_REGEX.containsMatchIn(curTrim)
+                BULLET_REGEX.containsMatchIn(cur) ||
+                NUM_REGEX.containsMatchIn(cur)
             ) {
                 break
             }
@@ -185,6 +190,10 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
         }
         if (paraLines.isNotEmpty()) {
             elements.add(MarkdownElement.Paragraph(paraLines.joinToString(" ")))
+        }
+        // Strict invariant: guarantee forward progress on any malformed input
+        if (i <= loopStartI) {
+            i = loopStartI + 1
         }
     }
     return elements

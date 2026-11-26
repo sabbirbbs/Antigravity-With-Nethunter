@@ -576,10 +576,16 @@ object EngineExecutor {
     fun isAgyRunning(): Boolean = activeAgyProcess != null
 
     fun stopAgyProcess() {
-        try {
-            activeAgyProcess?.destroyForcibly()
-        } catch (e: Exception) {}
+        val proc = activeAgyProcess
         activeAgyProcess = null
+        Thread {
+            try { proc?.outputStream?.close() } catch (_: Exception) {}
+            try { proc?.inputStream?.close() } catch (_: Exception) {}
+            try { proc?.destroyForcibly() } catch (_: Exception) {}
+            if (RootNetHunterManager.cachedStatus?.hasRoot == true) {
+                RootNetHunterManager.runSuQuick("pkill -TERM -f 'engine/bin/agy acp' 2>/dev/null || true", 2000L)
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     fun writeToAgyStdin(input: String): Boolean {

@@ -41,7 +41,17 @@ class ConversationManagerDelegate {
     }
 
     fun loadMessagesForConversation(context: Context, conversationId: String): List<ChatMessage> {
-        return ConversationPersistence.loadMessagesForConversation(context, conversationId)
+        return ConversationPersistence.loadMessagesForConversation(context, conversationId).map { msg ->
+            if (msg.status == id.vern.antigravity.data.MessageStatus.SENDING) {
+                msg.copy(
+                    status = id.vern.antigravity.data.MessageStatus.SENT,
+                    thinking = null,
+                    steps = msg.steps.map { step -> if (!step.isCompleted) step.copy(isCompleted = true) else step }
+                )
+            } else {
+                msg
+            }
+        }
     }
 
     fun deleteConversationFile(context: Context, conversationId: String) {
