@@ -21,14 +21,16 @@
 ## Key Features
 
 - **Native Kali NetHunter Chroot & Magisk Root Integration (`su -mm`)**
-  - Auto-discovers your Kali NetHunter chroot (`/data/local/nhsystem/kali-arm64`, `kalifs`, etc.) and bind-mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, `/dev/shm`, `/storage/emulated/0`, and app data cleanly in the global mount namespace.
+  - Auto-discovers your Kali NetHunter chroot (`/data/local/nhsystem/kali-arm64`, `kalifs`, etc.) and Magisk `su` across `/system_ext/bin/su`, `/debug_ramdisk/su`, `/sbin/su`, and `/system/xbin/su`.
+  - Bind-mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, `/dev/shm`, `/storage/emulated/0`, `/opt/antigravity`, and app data cleanly into the chroot—auto-healing stale mounts across reinstalls.
+  - Runs the `agy` ACP/CLI agent **directly inside the Kali NetHunter chroot** (`/bin/bash` & Kali `/bin/sh`) when `KALI` mode is active, while sharing `/sdcard` and `/storage/emulated/0/Antigravity` simultaneously with Android.
   - Switch seamlessly between **Kali NetHunter (`KALI`)**, **Android Root (`ROOT`)**, and **App Sandbox (`SANDBOX`)** from **Settings → Developer & System → Root & Kali NetHunter**.
-  - **Zero-Bloat Native Bootstrap**: When Magisk Root + Kali NetHunter chroot are present, setup skips downloading the redundant Termux Linux rootfs (`bootstrap-aarch64.zip`) and routes `bash`, `sh`, `python3`, `git`, `curl`, `tar`, `node`, `npm`, and `pip3` directly into your Kali chroot.
+  - **Zero-Bloat Native Bootstrap**: When Magisk Root + Kali NetHunter chroot are present, setup skips downloading the redundant Termux Linux rootfs (`bootstrap-aarch64.zip`) and provides positional-argument-safe Kali tool shims.
 - **In-App Live Web Browser & `file:///` Previewer**
-  - Clicking `file:///` links in AI responses or Markdown previews opens files **directly inside Antigravity** (HTML, SVG, Markdown, images, directories, and syntax/line-numbered code with `#L` line jump), with one-tap **Edit in Code Editor**, **Copy Path**, **Copy to Downloads**, and **Open With (`FileProvider`)**.
-  - Clicking `http://localhost:...`, `http://127.0.0.1:...`, `http://0.0.0.0:...`, or LAN Wi-Fi URLs (`http://192.168.x.x:...`) opens an **in-app WebView browser** with URL bar, refresh, port diagnostics, and instant switching between `Localhost` and your phone's LAN Wi-Fi IP.
+  - Clicking `file:///` links anywhere in AI responses (paragraphs, lists, blockquotes, and Markdown tables via Compose `LinkAnnotation`) opens files **directly inside Antigravity** (HTML, SVG, Markdown, images, directories, and syntax/line-numbered code with `#L` line jump), with one-tap **Edit in Code Editor**, **Preview/Code toggle**, **Copy Path**, **Copy to Downloads**, and **Open With (`FileProvider`)**.
+  - Clicking `http://localhost:...`, `http://127.0.0.1:...`, `http://0.0.0.0:...`, or LAN Wi-Fi URLs (`http://192.168.x.x:...`) opens an **in-app WebView browser** with an opaque elevated toolbar, URL bar, refresh, port diagnostics, and instant switching between `Localhost` and your phone's LAN Wi-Fi IP.
 - **Persistent Background Web Server Manager (`agy-srv`)**
-  - Run Python, Node/Vite, Next.js, Flask, PHP, or Nginx servers detached via `setsid` so they stay alive across AI turns:
+  - Run Python, Node/Vite, Next.js, Flask, PHP, or Nginx servers detached via `setsid -w` with clean PGID/child process-group cleanup on `stop`, so servers stay alive across AI turns:
     ```bash
     agy-srv start web "python3 -m http.server 8000 --bind 0.0.0.0"
     agy-srv list
@@ -40,8 +42,8 @@
   - Attach files or open/create project workspaces directly inside Kali Linux (`/root`, `/home`, `/var/www`) or `/storage/emulated/0/Antigravity` without Android SAF limitations—plus quick-root chips, Copy Path, and Copy-to-Downloads in the Workspace File Tree.
 - **Bengali & Multi-Language Voice Typing**
   - Built-in voice input language switcher (`বাংলা bn-BD`, `EN en-US`, `বাংলা-IN`, `AUTO`) directly on the chat input bar.
-- **Subagent Lifecycle & Execution Fixes**
-  - Automatically clears completed subagents from the running bar once finished.
+- **ANR-Free Markdown Streaming & Lifecycle Stability**
+  - Loop-invariant-guarded Markdown parser (tables, nested lists, `#` streaming tokens), ACP turn idle watchdog (`12s` post-response / `120s` active tool), persistent **Red Stop** button during execution with non-blocking child reap, and stale `SENDING` state recovery on restart.
 
 ---
 
