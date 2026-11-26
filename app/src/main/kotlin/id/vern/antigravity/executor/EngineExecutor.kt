@@ -615,7 +615,6 @@ object EngineExecutor {
                 append("export GIT_TEMPLATE_DIR='${esc(validGitTemplate.absolutePath)}'; ")
                 append("export TERM=xterm-256color LANG=en_US.UTF-8 GODEBUG=netdns=cgo; ")
                 append("export PATH='${esc(pathStr)}'; ")
-                append("export LD_LIBRARY_PATH='${esc("${prefixLib.absolutePath}:/system/lib64")}'; ")
                 if (certFile.exists()) {
                     append("export SSL_CERT_FILE='${esc(certFile.absolutePath)}'; ")
                     append("export CURL_CA_BUNDLE='${esc(certFile.absolutePath)}'; ")
@@ -840,6 +839,43 @@ object EngineExecutor {
                                 }
                             }
                         }
+                    } else if (method.isNotBlank() && msg.has("id")) {
+                        val reqId = msg.opt("id")
+                        val reply = JSONObject().apply {
+                            put("jsonrpc", "2.0")
+                            put("id", reqId)
+                            if (method == "session/request_permission") {
+                                val options = msg.optJSONObject("params")?.optJSONArray("options")
+                                var chosenOptionId = "allow_always"
+                                if (options != null && options.length() > 0) {
+                                    for (idx in 0 until options.length()) {
+                                        val opt = options.optJSONObject(idx) ?: continue
+                                        val kind = opt.optString("kind").lowercase()
+                                        val optId = opt.optString("optionId")
+                                        if (kind.contains("allow") && optId.isNotBlank()) {
+                                            chosenOptionId = optId
+                                            if (kind.contains("always")) break
+                                        }
+                                    }
+                                }
+                                put("result", JSONObject().apply {
+                                    put("outcome", JSONObject().apply {
+                                        put("outcome", "selected")
+                                        put("optionId", chosenOptionId)
+                                    })
+                                })
+                            } else {
+                                put("error", JSONObject().apply {
+                                    put("code", -32601)
+                                    put("message", "Method not supported by mobile client: $method")
+                                })
+                            }
+                        }
+                        try {
+                            writer.write(reply.toString())
+                            writer.newLine()
+                            writer.flush()
+                        } catch (_: Exception) {}
                     } else if (msg.has("id") && msg.optInt("id", -1) == expectedId) {
                         return msg
                     }

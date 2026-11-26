@@ -429,6 +429,7 @@ object RootNetHunterManager {
 
         val nhShellScript = """
             #!/system/bin/sh
+            unset LD_PRELOAD LD_LIBRARY_PATH
             MODE="${'$'}{AGY_EXEC_MODE:-ROOT_ANDROID}"
             CHROOT="${'$'}{AGY_CHROOT_DIR:-$chrootPath}"
             ARG_CMD=""
@@ -459,7 +460,7 @@ object RootNetHunterManager {
                     /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                     *) CHROOT_CWD="$wsDefault" ;;
                 esac
-                exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; eval "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
+                exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; exec /bin/bash -c "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
             fi
 
             if [ -x "${prefix.absolutePath}/bin/bash" ]; then
