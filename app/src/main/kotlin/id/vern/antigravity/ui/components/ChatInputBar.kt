@@ -1209,7 +1209,7 @@ fun ChatInputBar(
                     Spacer(modifier = Modifier.width(4.dp))
 
                     val hasInput = inputText.isNotBlank() || attachedFiles.isNotEmpty()
-                    if (isExecuting && !hasInput) {
+                    if (isExecuting) {
 
                         Box(
                             modifier = Modifier

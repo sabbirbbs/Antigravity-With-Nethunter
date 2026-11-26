@@ -353,20 +353,28 @@ object RootNetHunterManager {
                         /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                         *) CHROOT_CWD="/sdcard/Antigravity" ;;
                     esac
+                    if [ "${'$'}(id -u)" = "0" ]; then
+                        unset LD_PRELOAD LD_LIBRARY_PATH
+                        [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
+                        [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                        [ -d "${'$'}CHROOT/sys/kernel" ] || mount -t sysfs sysfs "${'$'}CHROOT/sys" 2>/dev/null || true
+                        [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
+                        [ -d "${'$'}CHROOT/storage/emulated/0/Android" ] || { mkdir -p "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; }
+                        [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                        exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "${'$'}1" 2>/dev/null || cd /root; shift; exec "${'$'}0" "${'$'}@"' "$tool" "${'$'}CHROOT_CWD" "${'$'}@"
+                    fi
+                    CHROOT_ESC=${'$'}(printf '%s' "${'$'}CHROOT" | sed "s/'/'\\\\''/g")
+                    CWD_ESC=${'$'}(printf '%s' "${'$'}CHROOT_CWD" | sed "s/'/'\\\\''/g")
                     ARGS=""
                     for a in "${'$'}@"; do
                         ESC=${'$'}(printf '%s' "${'$'}a" | sed "s/'/'\\\\''/g")
                         ARGS="${'$'}ARGS '${'$'}ESC'"
                     done
-                    INNER="unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -c 'cd \"${'$'}CHROOT_CWD\" 2>/dev/null || cd /root; exec $tool ${'$'}ARGS'"
-                    if [ "${'$'}(id -u)" = "0" ]; then
-                        exec /system/bin/sh -c "${'$'}INNER"
-                    fi
                     SU_BIN="su"
-                    for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+                    for s in /system_ext/bin/su /system_ext/xbin/su /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
                         if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
                     done
-                    exec "${'$'}SU_BIN" -mm -c "${'$'}INNER"
+                    exec "${'$'}SU_BIN" -mm -c "unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT_ESC' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd \"\$1\" 2>/dev/null || cd /root; shift; exec \"\$0\" \"\$@\"' '$tool' '${'$'}CWD_ESC'${'$'}ARGS"
                 """.trimIndent() + "\n"
                 writeExecutableScript(target, shim)
             }
@@ -421,7 +429,7 @@ object RootNetHunterManager {
                 exec /system/bin/sh -c "${'$'}RUN_LINE"
             fi
             SU_BIN="su"
-            for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+            for s in /system_ext/bin/su /system_ext/xbin/su /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
                 if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
             done
             exec "${'$'}SU_BIN" -mm -c "${'$'}RUN_LINE"
@@ -433,16 +441,24 @@ object RootNetHunterManager {
             MODE="${'$'}{AGY_EXEC_MODE:-ROOT_ANDROID}"
             CHROOT="${'$'}{AGY_CHROOT_DIR:-$chrootPath}"
             ARG_CMD=""
-            if [ "${'$'}1" = "-c" ] || [ "${'$'}1" = "-lc" ]; then
-                shift
-                ARG_CMD="${'$'}1"
-            else
-                ARG_CMD="$*"
-            fi
+            case "${'$'}1" in
+                -c|-lc|-ic|-ilc)
+                    shift
+                    ARG_CMD="${'$'}1"
+                    ;;
+                *)
+                    ARG_CMD="$*"
+                    ;;
+            esac
 
             if [ -z "${'$'}ARG_CMD" ]; then
                 if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
-                    exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l
+                    if [ "${'$'}(id -u)" = "0" ]; then
+                        [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
+                        [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                        [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
+                        exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l
+                    fi
                 fi
                 exec "${prefix.absolutePath}/bin/bash"
             fi
@@ -460,7 +476,14 @@ object RootNetHunterManager {
                     /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                     *) CHROOT_CWD="$wsDefault" ;;
                 esac
-                exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; exec /bin/bash -c "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
+                if [ "${'$'}(id -u)" = "0" ]; then
+                    [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
+                    [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                    [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
+                    [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                    exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; exec /bin/bash -c "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
+                fi
+                exec "${prefix.absolutePath}/bin/bash" -c "${'$'}ARG_CMD"
             fi
 
             if [ -x "${prefix.absolutePath}/bin/bash" ]; then
@@ -485,7 +508,7 @@ object RootNetHunterManager {
                     /system/bin/sh -c "${'$'}1" 2>/dev/null || /bin/sh -c "${'$'}1"
                 else
                     SU_BIN="su"
-                    for s in /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
+                    for s in /system_ext/bin/su /system_ext/xbin/su /debug_ramdisk/su /sbin/su /system/xbin/su /system/bin/su; do
                         if [ -x "${'$'}s" ]; then SU_BIN="${'$'}s"; break; fi
                     done
                     "${'$'}SU_BIN" -mm -c "${'$'}1"
@@ -514,15 +537,16 @@ object RootNetHunterManager {
                     if [ -f /etc/kali_version ] || [ -f /etc/debian_version ] || [ ! -d "${'$'}CHROOT" ]; then
                         # Already inside Kali NetHunter chroot OR chroot unavailable: run detached directly
                         ESC_CUR=${'$'}(printf '%s' "${'$'}CUR_DIR" | sed "s/'/'\\\\''/g")
-                        run_priv "setsid /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}ESC_CUR' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+                        run_priv "setsid -w /bin/bash -c 'cd \"\${'$'}1\" 2>/dev/null || cd /root; eval \"\${'$'}2\"' _ '${'$'}ESC_CUR' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
                     elif [ "${'$'}{AGY_EXEC_MODE:-KALI_NETHUNTER}" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
                         case "${'$'}CUR_DIR" in
                             "${'$'}CHROOT"*) CHROOT_CWD="${'$'}{CUR_DIR#"${'$'}CHROOT"}"; [ -z "${'$'}CHROOT_CWD" ] && CHROOT_CWD="/" ;;
                             *) CHROOT_CWD="${'$'}CUR_DIR" ;;
                         esac
-                        run_priv "setsid chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+                        ESC_CWD=${'$'}(printf '%s' "${'$'}CHROOT_CWD" | sed "s/'/'\\\\''/g")
+                        run_priv "setsid -w chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"\${'$'}1\" 2>/dev/null || cd /root; eval \"\${'$'}2\"' _ '${'$'}ESC_CWD' '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
                     else
-                        run_priv "cd '${'$'}CUR_DIR' 2>/dev/null || cd '$wsDefault'; setsid /system/bin/sh -c '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
+                        run_priv "cd '${'$'}CUR_DIR' 2>/dev/null || cd '$wsDefault'; setsid -w /system/bin/sh -c '${'$'}ESC_CMD' >'${'$'}LOG' 2>&1 </dev/null & echo \${'$'}! >'${'$'}PIDF'"
                     fi
 
                     sleep 1
@@ -539,7 +563,7 @@ object RootNetHunterManager {
                     PIDF="${'$'}SRV_DIR/${'$'}NAME.pid"
                     if [ -f "${'$'}PIDF" ]; then
                         PID="${'$'}(cat "${'$'}PIDF")"
-                        run_priv "kill -TERM -${'$'}PID 2>/dev/null || kill -9 ${'$'}PID 2>/dev/null || true"
+                        run_priv "CHILDREN=\$(ps -ef 2>/dev/null | awk -v p='${'$'}PID' '\$3==p {print \$2}'); for c in \${'$'}CHILDREN; do kill -TERM -\"\${'$'}c\" 2>/dev/null || kill -TERM \"\${'$'}c\" 2>/dev/null || true; done; kill -TERM -'${'$'}PID' 2>/dev/null || kill -9 '${'$'}PID' 2>/dev/null || true"
                         rm -f "${'$'}PIDF"
                         echo "[agy-srv] Stopped '${'$'}NAME' (PID ${'$'}PID)"
                     else
@@ -581,16 +605,28 @@ object RootNetHunterManager {
         writeExecutableScript(File(binDir, "agy-nh-shell"), nhShellScript)
         writeExecutableScript(File(binDir, "agy-srv"), srvScript)
 
+        if (status.chrootPath != null) {
+            deployKaliNativeShims(context, chrootPath)
+        }
+
         syncEnvironmentRule(context, status)
     }
 
     private fun writeExecutableScript(target: File, content: String) {
         try {
             target.parentFile?.mkdirs()
-            target.writeText(content, Charsets.UTF_8)
-            target.setReadable(true, false)
-            target.setExecutable(true, false)
-            Os.chmod(target.absolutePath, 493)
+            val tmp = File(target.parentFile, ".${target.name}.tmp.${android.os.Process.myTid()}")
+            tmp.writeText(content, Charsets.UTF_8)
+            tmp.setReadable(true, false)
+            tmp.setExecutable(true, false)
+            Os.chmod(tmp.absolutePath, 493)
+            if (!tmp.renameTo(target)) {
+                target.writeText(content, Charsets.UTF_8)
+                target.setReadable(true, false)
+                target.setExecutable(true, false)
+                Os.chmod(target.absolutePath, 493)
+                tmp.delete()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed writing script ${target.absolutePath}: ${e.message}")
         }

@@ -589,7 +589,7 @@ object EngineExecutor {
         val validGitExec = if (gitExecDir.exists() && gitExecDir.isDirectory) gitExecDir else null
         val validGitTemplate = File(prefixDir, "share/git-core/templates").apply { mkdirs() }
         val extraGitPath = if (validGitExec != null) ":${validGitExec.absolutePath}" else ""
-        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
+        val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system_ext/bin:/system_ext/xbin:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
         val nhShellFile = File(prefixDir, "bin/agy-nh-shell")
         val shellToUse = if (execMode != ExecutionMode.SANDBOX && nhShellFile.canExecute()) {
             nhShellFile.absolutePath
@@ -749,13 +749,12 @@ object EngineExecutor {
                 writer.flush()
             }
 
-            val toolCallCache = mutableMapOf<String, Pair<String, JSONObject?>>()
+            val toolCallCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, JSONObject?>>()
             val lastStreamActivityMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
 
             fun readUntilResponse(expectedId: Int): JSONObject? {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    lastStreamActivityMs.set(System.currentTimeMillis())
                     val trimmed = line?.trim().orEmpty()
                     if (!trimmed.startsWith("{")) continue
                     val msg = try { JSONObject(trimmed) } catch (_: Exception) { continue }
@@ -766,6 +765,7 @@ object EngineExecutor {
                             "agent_thought_chunk" -> {
                                 val chunk = upd.optJSONObject("content")?.optString("text", "") ?: ""
                                 if (chunk.isNotEmpty()) {
+                                    lastStreamActivityMs.set(System.currentTimeMillis())
                                     if (thoughtStartMs == 0L) thoughtStartMs = System.currentTimeMillis()
                                     thoughtSb.append(chunk)
                                     val durSec = ((System.currentTimeMillis() - thoughtStartMs) / 1000L).toInt().coerceAtLeast(1)
@@ -785,6 +785,7 @@ object EngineExecutor {
                                 }
                             }
                             "tool_call", "tool_call_update" -> {
+                                lastStreamActivityMs.set(System.currentTimeMillis())
                                 flushThoughtDone()
                                 val toolCallId = upd.optString("toolCallId").ifBlank { upd.optString("id") }
                                 val rawName = upd.optString("name").ifBlank { upd.optString("title", "") }
@@ -826,6 +827,7 @@ object EngineExecutor {
                                 flushThoughtDone()
                                 val chunk = upd.optJSONObject("content")?.optString("text", "") ?: ""
                                 if (chunk.isNotEmpty()) {
+                                    lastStreamActivityMs.set(System.currentTimeMillis())
                                     responseSb.append(chunk)
                                     val stepObj = JSONObject().apply {
                                         put("step_type", "agent_response")
@@ -842,6 +844,7 @@ object EngineExecutor {
                             }
                         }
                     } else if (method.isNotBlank() && msg.has("id")) {
+                        lastStreamActivityMs.set(System.currentTimeMillis())
                         val reqId = msg.opt("id")
                         val reply = JSONObject().apply {
                             put("jsonrpc", "2.0")
@@ -953,8 +956,10 @@ object EngineExecutor {
                     }
                     if (!watchdogRunning.get()) break
                     val idleMs = System.currentTimeMillis() - lastStreamActivityMs.get()
-                    val timeoutMs = if (responseSb.isNotEmpty()) 18_000L else 120_000L
+                    val timeoutMs = if (responseSb.isNotEmpty() && toolCallCache.isEmpty()) 12_000L else 120_000L
                     if (idleMs > timeoutMs) {
+                        try { process.outputStream.close() } catch (_: Exception) {}
+                        try { process.inputStream.close() } catch (_: Exception) {}
                         try { process.destroyForcibly() } catch (_: Exception) {}
                         break
                     }
