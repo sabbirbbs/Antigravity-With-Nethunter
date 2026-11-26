@@ -750,10 +750,12 @@ object EngineExecutor {
             }
 
             val toolCallCache = mutableMapOf<String, Pair<String, JSONObject?>>()
+            val lastStreamActivityMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
 
             fun readUntilResponse(expectedId: Int): JSONObject? {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
+                    lastStreamActivityMs.set(System.currentTimeMillis())
                     val trimmed = line?.trim().orEmpty()
                     if (!trimmed.startsWith("{")) continue
                     val msg = try { JSONObject(trimmed) } catch (_: Exception) { continue }
@@ -938,8 +940,29 @@ object EngineExecutor {
                 readUntilResponse(nextId++)
             }
 
-            // 4. Run prompt turn
+            // 4. Run prompt turn with idle watchdog so finished responses never stay stuck on Working...
             val promptId = nextId++
+            lastStreamActivityMs.set(System.currentTimeMillis())
+            val watchdogRunning = java.util.concurrent.atomic.AtomicBoolean(true)
+            val watchdogThread = Thread {
+                while (watchdogRunning.get() && process.isAlive) {
+                    try {
+                        Thread.sleep(2000L)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                    if (!watchdogRunning.get()) break
+                    val idleMs = System.currentTimeMillis() - lastStreamActivityMs.get()
+                    val timeoutMs = if (responseSb.isNotEmpty()) 18_000L else 120_000L
+                    if (idleMs > timeoutMs) {
+                        try { process.destroyForcibly() } catch (_: Exception) {}
+                        break
+                    }
+                }
+            }
+            watchdogThread.isDaemon = true
+            watchdogThread.start()
+
             sendRpc(promptId, "session/prompt", JSONObject().apply {
                 put("sessionId", activeSessionId)
                 put("prompt", JSONArray().put(JSONObject().apply {
@@ -947,10 +970,26 @@ object EngineExecutor {
                     put("text", prompt)
                 }))
             })
-            val promptResp = readUntilResponse(promptId)
+            val promptResp = try {
+                readUntilResponse(promptId)
+            } finally {
+                watchdogRunning.set(false)
+                watchdogThread.interrupt()
+            }
             flushThoughtDone()
 
             if (promptResp == null) {
+                if (responseSb.isNotEmpty()) {
+                    onOutputLine(JSONObject().apply {
+                        put("event", "result")
+                        put("conversation_id", activeSessionId)
+                        put("result", JSONObject().apply {
+                            put("status", "SUCCESS")
+                            put("response", responseSb.toString())
+                        })
+                    }.toString(), false)
+                    return@withContext 0
+                }
                 return@withContext -1
             }
             if (promptResp.has("error")) {
