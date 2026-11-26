@@ -825,6 +825,7 @@ object EngineExecutor {
 
             val toolCallCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, JSONObject?>>()
             val lastStreamActivityMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+            val hasFinalMessageSinceToolOrThought = java.util.concurrent.atomic.AtomicBoolean(false)
 
             fun readUntilResponse(expectedId: Int): JSONObject? {
                 var line: String?
@@ -840,6 +841,7 @@ object EngineExecutor {
                                 val chunk = upd.optJSONObject("content")?.optString("text", "") ?: ""
                                 if (chunk.isNotEmpty()) {
                                     lastStreamActivityMs.set(System.currentTimeMillis())
+                                    hasFinalMessageSinceToolOrThought.set(false)
                                     if (thoughtStartMs == 0L) thoughtStartMs = System.currentTimeMillis()
                                     thoughtSb.append(chunk)
                                     val durSec = ((System.currentTimeMillis() - thoughtStartMs) / 1000L).toInt().coerceAtLeast(1)
@@ -860,6 +862,7 @@ object EngineExecutor {
                             }
                             "tool_call", "tool_call_update" -> {
                                 lastStreamActivityMs.set(System.currentTimeMillis())
+                                hasFinalMessageSinceToolOrThought.set(false)
                                 flushThoughtDone()
                                 val toolCallId = upd.optString("toolCallId").ifBlank { upd.optString("id") }
                                 val rawName = upd.optString("name").ifBlank { upd.optString("title", "") }
@@ -902,6 +905,7 @@ object EngineExecutor {
                                 val chunk = upd.optJSONObject("content")?.optString("text", "") ?: ""
                                 if (chunk.isNotEmpty()) {
                                     lastStreamActivityMs.set(System.currentTimeMillis())
+                                    hasFinalMessageSinceToolOrThought.set(true)
                                     responseSb.append(chunk)
                                     val stepObj = JSONObject().apply {
                                         put("step_type", "agent_response")
@@ -919,6 +923,7 @@ object EngineExecutor {
                         }
                     } else if (method.isNotBlank() && msg.has("id")) {
                         lastStreamActivityMs.set(System.currentTimeMillis())
+                        hasFinalMessageSinceToolOrThought.set(false)
                         val reqId = msg.opt("id")
                         val reply = JSONObject().apply {
                             put("jsonrpc", "2.0")
@@ -1019,6 +1024,7 @@ object EngineExecutor {
 
             // 4. Run prompt turn with idle watchdog so finished responses never stay stuck on Working...
             val promptId = nextId++
+            hasFinalMessageSinceToolOrThought.set(false)
             lastStreamActivityMs.set(System.currentTimeMillis())
             val watchdogRunning = java.util.concurrent.atomic.AtomicBoolean(true)
             val watchdogThread = Thread {
@@ -1030,7 +1036,7 @@ object EngineExecutor {
                     }
                     if (!watchdogRunning.get()) break
                     val idleMs = System.currentTimeMillis() - lastStreamActivityMs.get()
-                    val timeoutMs = if (responseSb.isNotEmpty() && toolCallCache.isEmpty()) 12_000L else 120_000L
+                    val timeoutMs = if (hasFinalMessageSinceToolOrThought.get() && toolCallCache.isEmpty()) 90_000L else 240_000L
                     if (idleMs > timeoutMs) {
                         try { process.outputStream.close() } catch (_: Exception) {}
                         try { process.inputStream.close() } catch (_: Exception) {}
