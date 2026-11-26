@@ -290,6 +290,29 @@ object RootNetHunterManager {
                 ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true
             fi
 
+            # Guard host /system/bin/sh against circular symlink loops
+            if [ "${'$'}(readlink /system/bin/sh 2>/dev/null)" = "/bin/sh" ] || [ "${'$'}(readlink /system/bin/sh 2>/dev/null)" = "sh" ] || ! /system/bin/sh -c 'true' 2>/dev/null; then
+                for bb in /system/bin/busybox_nh-1.32 /system/bin/busybox_nh-1.38.0 /system/bin/busybox_nh /system/bin/mksh /system/bin/toybox; do
+                    if [ -x "${'$'}bb" ]; then
+                        ln -sfn "${'$'}bb" /system/bin/sh 2>/dev/null || true
+                        break
+                    fi
+                done
+            fi
+
+            # Deploy Android host bridge inside Kali NetHunter
+            mkdir -p "${'$'}CHROOT/usr/local/bin" 2>/dev/null || true
+            cat << 'EOF' > "${'$'}CHROOT/usr/local/bin/android"
+#!/bin/bash
+if [ "${'$'}#" -eq 0 ]; then
+    exec nsenter -t 1 -m /system/bin/sh
+else
+    exec nsenter -t 1 -m /system/bin/sh -c "${'$'}*"
+fi
+EOF
+            chmod 755 "${'$'}CHROOT/usr/local/bin/android" 2>/dev/null || true
+            cp -f "${'$'}CHROOT/usr/local/bin/android" "${'$'}CHROOT/usr/local/bin/android-sh" 2>/dev/null || true
+
             if [ ! -s "${'$'}CHROOT/etc/resolv.conf" ] || ! grep -q "nameserver" "${'$'}CHROOT/etc/resolv.conf" 2>/dev/null; then
                 printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > "${'$'}CHROOT/etc/resolv.conf"
             fi
@@ -396,6 +419,20 @@ object RootNetHunterManager {
                 writeExecutableScript(target, shim)
             }
         }
+
+        runSuQuick("""
+            mkdir -p '$escChroot/usr/local/bin' 2>/dev/null || true
+            cat << 'EOF' > '$escChroot/usr/local/bin/android'
+#!/bin/bash
+if [ "${'$'}#" -eq 0 ]; then
+    exec nsenter -t 1 -m /system/bin/sh
+else
+    exec nsenter -t 1 -m /system/bin/sh -c "${'$'}*"
+fi
+EOF
+            chmod 755 '$escChroot/usr/local/bin/android' 2>/dev/null || true
+            cp -f '$escChroot/usr/local/bin/android' '$escChroot/usr/local/bin/android-sh' 2>/dev/null || true
+        """.trimIndent(), 4000L)
     }
 
     fun deployRootAndNetHunterTools(context: Context) {
@@ -628,6 +665,17 @@ object RootNetHunterManager {
         writeExecutableScript(File(binDir, "agy-nh-shell"), nhShellScript)
         writeExecutableScript(File(binDir, "agy-srv"), srvScript)
 
+        val androidBridgeScript = """
+            #!/system/bin/sh
+            if [ "${'$'}#" -eq 0 ]; then
+                exec /system/bin/sh
+            else
+                exec /system/bin/sh -c "${'$'}*"
+            fi
+        """.trimIndent() + "\n"
+        writeExecutableScript(File(binDir, "android"), androidBridgeScript)
+        writeExecutableScript(File(binDir, "android-sh"), androidBridgeScript)
+
         if (status.chrootPath != null) {
             deployKaliNativeShims(context, chrootPath)
         }
@@ -660,27 +708,37 @@ object RootNetHunterManager {
         val chrootText = status.chrootPath ?: "Not detected"
         val wifiIp = getLocalWifiIpAddress(context) ?: "<device-wifi-ip>"
         val ruleText = """
-            # Root & Kali NetHunter Android Environment (Live Context)
+            # Root & Kali NetHunter Android Environment (Dual Host + Linux Context)
             
-            - **Current OS & Shell Context**: You are running natively inside **Kali NetHunter (`$chrootText`, `uid=0` Root: `${status.hasRoot}`)** on a **rooted Android ARM64 device**.
+            - **Current OS & Shell Context**: You are executing natively inside **Kali NetHunter (`$chrootText`, `uid=0` Root: `${status.hasRoot}`)** on a rooted Xiaomi POCO F1 ARM64 device.
             - **Active Execution Mode**: `${status.effectiveMode.displayName}`
-            - **Simultaneous File Access**:
-              - Android shared storage (`/storage/emulated/0` and `/sdcard`) is bind-mounted directly inside your Kali Linux environment at `/sdcard` and `/storage/emulated/0`.
-              - Default shared workspace: `$wsDefault` (identical to `/sdcard/Antigravity`).
-              - All Kali tools (`nmap`, `sqlmap`, `python3`, `bash`, `node`, `npm`, `git`, `curl`, `ip`, `ss`) run natively without `su` or `chroot` wrappers.
+            - **Dual Operating System Architecture**:
+              1. **Kali Linux Native Tools**: All standard Linux & penetration testing tools (`nmap`, `sqlmap`, `python3`, `bash`, `node`, `npm`, `git`, `curl`, `ip`, `ss`, `tcpdump`, `wireshark`, `tshark`, `metasploit`, `aircrack-ng`) run directly with full root permissions (`uid=0`, `gid=0`).
+              2. **Android Host OS Bridge (`android` command)**: You can execute ANY native Android system command directly from within Kali using `android "<command>"` or `android-sh` (powered by `nsenter -t 1 -m /system/bin/sh` into Android's root namespace).
+                 - Device properties: `android "getprop ro.product.model"` or `android "getprop ro.build.version.release"`
+                 - Package manager: `android "pm list packages -3"`, `android "pm install -r <apk>"`
+                 - Activity manager: `android "am start -n <package>/<activity>"`
+                 - Hardware & wireless controls: `android "svc wifi enable"`, `android "svc data disable"`, `android "dumpsys battery"`
+                 - Android native shell: `android "sh -c '...'"`
+              3. **Simultaneous Shared Storage**:
+                 - Android shared storage (`/storage/emulated/0` and `/sdcard`) is bind-mounted directly inside your Kali Linux environment at `/sdcard` and `/storage/emulated/0`.
+                 - Default shared workspace: `$wsDefault` (identical to `/sdcard/Antigravity`).
+                 - All files created in Kali are instantly accessible by Android apps, and vice-versa.
             - **Phone LAN Wi-Fi IP**: `$wifiIp`
             
             ## Critical Execution Rules (Read Carefully!)
-            1. **NEVER run `su` or `sudo`!** Your shell already executes as `uid=0` root.
-            2. **Fast Non-Blocking Network Commands**: When scanning LAN devices on mobile Wi-Fi, ALWAYS skip slow reverse-DNS stalls (`-n`) and cap host timeouts (e.g., `nmap -sn -n -T4 --max-retries 1 --host-timeout 3s 192.168.1.0/24` or `ip -4 neigh show`) with `WaitMsBeforeAsync=10000`.
-            3. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`** (`/opt/antigravity/usr/bin/agy-srv`):
+            1. **NEVER run `su` or `sudo` inside Kali!** Your shell already executes as `uid=0` root.
+            2. **Android Host vs Kali Commands**: For Kali Linux tools (`nmap`, `python3`, `pip`, `git`, `curl`), run them directly. For Android OS-specific commands (`getprop`, `pm`, `am`, `svc`, `settings`, `dumpsys`), prefix with `android "<command>"`.
+            3. **Host `/system/bin/sh` Integrity**: The Android host shell is securely pointed to `/system/bin/busybox_nh-1.32`. Never overwrite or create circular symlinks pointing to `/bin/sh`.
+            4. **Fast Non-Blocking Network Commands**: When scanning LAN devices on mobile Wi-Fi, ALWAYS skip slow reverse-DNS stalls (`-n`) and cap host timeouts (e.g., `nmap -sn -n -T4 --max-retries 1 --host-timeout 3s 192.168.1.0/24` or `ip -4 neigh show`) with `WaitMsBeforeAsync=10000`.
+            5. **Web Servers MUST bind to `0.0.0.0` AND run detached via `agy-srv`** (`/opt/antigravity/usr/bin/agy-srv`):
                - Python: `agy-srv start web "python3 -m http.server 8000 --bind 0.0.0.0"`
                - Node/Vite: `agy-srv start vite "npm run dev -- --host 0.0.0.0 --port 5173"`
                - Next.js: `agy-srv start next "npx next dev -H 0.0.0.0 -p 3000"`
                - Flask: `agy-srv start flask "flask run --host=0.0.0.0 --port=5000"`
                Check status/ports with `agy-srv list`, `agy-srv logs <name>`, `agy-srv ports`.
                Share clickable links `http://127.0.0.1:<port>` (for in-app browser preview) and `http://$wifiIp:<port>` (for LAN Wi-Fi).
-            4. **File Links:** Output standard `[filename](file:///exact/path)` links—Antigravity opens `file:///` links directly in the built-in preview/editor.
+            6. **File Links:** Output standard `[filename](file:///exact/path)` links—Antigravity opens `file:///` links directly in the built-in preview/editor.
         """.trimIndent() + "\n"
 
         listOf(
