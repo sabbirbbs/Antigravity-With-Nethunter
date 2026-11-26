@@ -704,7 +704,21 @@ object EngineExecutor {
 
         fun extractToolOutput(upd: JSONObject): String? {
             val rawOut = upd.optString("output").ifBlank { upd.optString("rawOutput") }
-            if (rawOut.isNotBlank()) return rawOut
+            if (rawOut.isNotBlank()) {
+                val trimmed = rawOut.trim()
+                if (trimmed.startsWith("{")) {
+                    try {
+                        val obj = JSONObject(trimmed)
+                        val inner = obj.optString("output").ifBlank {
+                            val out = obj.optString("stdout")
+                            val err = obj.optString("stderr")
+                            listOf(out, err).filter { it.isNotBlank() }.joinToString("\n")
+                        }
+                        if (inner.isNotBlank()) return inner
+                    } catch (_: Exception) {}
+                }
+                return rawOut
+            }
             val contentArr = upd.optJSONArray("content") ?: return null
             val sb = StringBuilder()
             for (i in 0 until contentArr.length()) {

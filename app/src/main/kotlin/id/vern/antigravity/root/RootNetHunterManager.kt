@@ -274,6 +274,8 @@ object RootNetHunterManager {
             is_mounted "${'$'}CHROOT/opt/antigravity" || mount -o bind '$escFiles' "${'$'}CHROOT/opt/antigravity" || true
 
             ln -sfn /sdcard/Antigravity "${'$'}CHROOT/root/workspace" 2>/dev/null || true
+            mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true
+            ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true
 
             if [ ! -s "${'$'}CHROOT/etc/resolv.conf" ] || ! grep -q "nameserver" "${'$'}CHROOT/etc/resolv.conf" 2>/dev/null; then
                 printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > "${'$'}CHROOT/etc/resolv.conf"
@@ -316,7 +318,7 @@ object RootNetHunterManager {
         val escCmd = shellEscape(command)
         return "unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '$escChroot' /usr/bin/env -i " +
             "HOME=/root TERM=xterm-256color LANG=C.UTF-8 " +
-            "PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin " +
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin " +
             "DEBIAN_FRONTEND=noninteractive " +
             "/bin/bash -c 'cd \"\$1\" 2>/dev/null || cd /root; eval \"\$2\"' _ '$escCwd' '$escCmd'"
     }
@@ -340,6 +342,10 @@ object RootNetHunterManager {
             if (!isExistingRealBinary) {
                 val shim = """
                     #!/system/bin/sh
+                    if [ -f /etc/kali_version ] || [ -f /etc/debian_version ]; then
+                        if [ -x "/usr/bin/$tool" ]; then exec "/usr/bin/$tool" "${'$'}@"; fi
+                        if [ -x "/bin/$tool" ]; then exec "/bin/$tool" "${'$'}@"; fi
+                    fi
                     CHROOT="${'$'}{AGY_CHROOT_DIR:-$chrootPath}"
                     CUR_DIR="${'$'}(pwd 2>/dev/null || echo '/sdcard/Antigravity')"
                     case "${'$'}CUR_DIR" in
@@ -352,7 +358,7 @@ object RootNetHunterManager {
                         ESC=${'$'}(printf '%s' "${'$'}a" | sed "s/'/'\\\\''/g")
                         ARGS="${'$'}ARGS '${'$'}ESC'"
                     done
-                    INNER="unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}CHROOT_CWD\" 2>/dev/null || cd /root; exec $tool ${'$'}ARGS'"
+                    INNER="unset LD_PRELOAD LD_LIBRARY_PATH; exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -c 'cd \"${'$'}CHROOT_CWD\" 2>/dev/null || cd /root; exec $tool ${'$'}ARGS'"
                     if [ "${'$'}(id -u)" = "0" ]; then
                         exec /system/bin/sh -c "${'$'}INNER"
                     fi
@@ -403,13 +409,13 @@ object RootNetHunterManager {
                 /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                 *) CHROOT_CWD="/sdcard/Antigravity" ;;
             esac
-            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0'; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true;"
+            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0' '${'$'}CHROOT/system/bin'; ln -sfn /bin/sh '${'$'}CHROOT/system/bin/sh' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true;"
             if [ "${'$'}#" -eq 0 ]; then
-                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -l"
+                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l"
             else
                 CMD="$*"
                 ESC_CMD=${'$'}(printf '%s' "${'$'}CMD" | sed "s/'/'\\\\''/g")
-                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD'"
+                RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -c 'cd \"${'$'}1\" 2>/dev/null || cd /root; eval \"${'$'}2\"' _ '${'$'}CHROOT_CWD' '${'$'}ESC_CMD'"
             fi
             if [ "${'$'}(id -u)" = "0" ]; then
                 exec /system/bin/sh -c "${'$'}RUN_LINE"
@@ -434,11 +440,14 @@ object RootNetHunterManager {
             fi
 
             if [ -z "${'$'}ARG_CMD" ]; then
+                if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
+                    exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l
+                fi
                 exec "${prefix.absolutePath}/bin/bash"
             fi
 
             case "${'$'}ARG_CMD" in
-                *"${filesDir.absolutePath}/usr"*|*"${filesDir.absolutePath}/engine"*)
+                *"${filesDir.absolutePath}/usr/bin/agy-daemon"*|*"${filesDir.absolutePath}/usr/bin/pkg"*)
                     exec /system/bin/sh -c "${'$'}ARG_CMD"
                     ;;
             esac
@@ -450,7 +459,7 @@ object RootNetHunterManager {
                     /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                     *) CHROOT_CWD="$wsDefault" ;;
                 esac
-                exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/opt/antigravity/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; eval "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
+                exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; eval "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
             fi
 
             if [ -x "${prefix.absolutePath}/bin/bash" ]; then

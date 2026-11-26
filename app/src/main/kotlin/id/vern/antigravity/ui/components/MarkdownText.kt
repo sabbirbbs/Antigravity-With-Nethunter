@@ -57,17 +57,27 @@ import id.vern.antigravity.ui.theme.AntigravityBlue
 sealed class MarkdownElement {
     data class Heading(val level: Int, val text: String) : MarkdownElement()
     data class CodeBlock(val language: String, val code: String) : MarkdownElement()
-    data class ListItem(val bullet: String, val text: String) : MarkdownElement()
+    data class ListItem(val bullet: String, val text: String, val indentLevel: Int = 0) : MarkdownElement()
     data class BlockQuote(val text: String) : MarkdownElement()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MarkdownElement()
     object Divider : MarkdownElement()
     data class Paragraph(val text: String) : MarkdownElement()
 }
 
-private val BULLET_REGEX = Regex("""^[-*+]\s+(.*)$""")
-private val NUM_REGEX = Regex("""^(\d+)\.\s+(.*)$""")
+private val BULLET_REGEX = Regex("""^(\s*)[-*+]\s+(.*)$""")
+private val NUM_REGEX = Regex("""^(\s*)(\d+)\.\s+(.*)$""")
 private val BULLET_PREFIX_REGEX = Regex("""^[-*+]\s+""")
 private val NUM_PREFIX_REGEX = Regex("""^\d+\.\s+""")
-private val INLINE_TOKEN_REGEX = Regex("""(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|(?:https?|file)://[^\s<>\[\]()]+)""")
+private val TABLE_SEP_REGEX = Regex("""^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$""")
+private val INLINE_TOKEN_REGEX = Regex("""(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|\[[^\]]+\]\([^)]+\)|(?:https?|file)://[^\s<>\[\]()]+)""")
+
+private fun parseTableRow(line: String): List<String> {
+    return line.trim()
+        .removePrefix("|")
+        .removeSuffix("|")
+        .split("|")
+        .map { it.trim() }
+}
 
 fun parseMarkdown(content: String): List<MarkdownElement> {
     val elements = mutableListOf<MarkdownElement>()
@@ -87,6 +97,20 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
             }
             if (i < lines.size) i++
             elements.add(MarkdownElement.CodeBlock(language, codeLines.joinToString("\n")))
+            continue
+        }
+
+        if (trimmed.contains("|") && i + 1 < lines.size && TABLE_SEP_REGEX.matches(lines[i + 1].trim())) {
+            val headers = parseTableRow(trimmed)
+            i += 2
+            val rows = mutableListOf<List<String>>()
+            while (i < lines.size) {
+                val rTrim = lines[i].trim()
+                if (rTrim.isEmpty() || !rTrim.contains("|")) break
+                rows.add(parseTableRow(rTrim))
+                i++
+            }
+            elements.add(MarkdownElement.Table(headers, rows))
             continue
         }
 
@@ -116,19 +140,21 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
             continue
         }
 
-        val bulletMatch = BULLET_REGEX.find(trimmed)
+        val bulletMatch = BULLET_REGEX.find(line)
         if (bulletMatch != null) {
-            val text = bulletMatch.groupValues[1]
-            elements.add(MarkdownElement.ListItem("•", text))
+            val indent = (bulletMatch.groupValues[1].length / 2).coerceIn(0, 4)
+            val text = bulletMatch.groupValues[2].trim()
+            elements.add(MarkdownElement.ListItem("•", text, indent))
             i++
             continue
         }
 
-        val numMatch = NUM_REGEX.find(trimmed)
+        val numMatch = NUM_REGEX.find(line)
         if (numMatch != null) {
-            val num = numMatch.groupValues[1]
-            val text = numMatch.groupValues[2]
-            elements.add(MarkdownElement.ListItem("$num.", text))
+            val indent = (numMatch.groupValues[1].length / 2).coerceIn(0, 4)
+            val num = numMatch.groupValues[2]
+            val text = numMatch.groupValues[3].trim()
+            elements.add(MarkdownElement.ListItem("$num.", text, indent))
             i++
             continue
         }
@@ -147,6 +173,7 @@ fun parseMarkdown(content: String): List<MarkdownElement> {
                 curTrim.startsWith("#") ||
                 curTrim.startsWith(">") ||
                 curTrim == "---" ||
+                (curTrim.contains("|") && i + 1 < lines.size && TABLE_SEP_REGEX.matches(lines[i + 1].trim())) ||
                 BULLET_PREFIX_REGEX.containsMatchIn(curTrim) ||
                 NUM_PREFIX_REGEX.containsMatchIn(curTrim)
             ) {
@@ -180,9 +207,9 @@ fun parseInlineMarkdown(
             val token = match.value
             when {
                 token.startsWith("`") && token.endsWith("`") && token.length >= 2 -> {
-                    val code = token.substring(1, token.length - 1)
+                    val code = token.substring(1, token.length - 1).replace(" ", "\u00A0")
                     val start = length
-                    append(" $code ")
+                    append(code)
                     addStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
@@ -195,16 +222,32 @@ fun parseInlineMarkdown(
                     )
                 }
                 token.startsWith("**") && token.endsWith("**") && token.length >= 4 -> {
-                    val boldText = token.substring(2, token.length - 2)
+                    val inner = token.substring(2, token.length - 2)
+                    val cleanInner = if (inner.startsWith("`") && inner.endsWith("`") && inner.length >= 2) {
+                        inner.substring(1, inner.length - 1)
+                    } else inner
                     val start = length
-                    append(boldText)
-                    addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, length)
+                    append(cleanInner)
+                    addStyle(
+                        SpanStyle(
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = if (cleanInner !== inner) FontFamily.Monospace else null
+                        ),
+                        start,
+                        length
+                    )
                 }
                 token.startsWith("*") && token.endsWith("*") && token.length >= 2 -> {
                     val italicText = token.substring(1, token.length - 1)
                     val start = length
                     append(italicText)
                     addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, length)
+                }
+                token.startsWith("~~") && token.endsWith("~~") && token.length >= 4 -> {
+                    val strikeText = token.substring(2, token.length - 2)
+                    val start = length
+                    append(strikeText)
+                    addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, length)
                 }
                 token.startsWith("[") && token.contains("](") && token.endsWith(")") -> {
                     val label = token.substringAfter("[").substringBefore("](")
@@ -337,7 +380,7 @@ fun MarkdownText(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 4.dp, top = 1.dp, bottom = 1.dp),
+                                    .padding(start = (4 + element.indentLevel * 12).dp, top = 1.dp, bottom = 1.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
                                 Text(
@@ -357,6 +400,46 @@ fun MarkdownText(
                                     ),
                                     modifier = Modifier.weight(1f)
                                 )
+                            }
+                        }
+
+                        is MarkdownElement.Table -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                    Row(
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                            .padding(vertical = 6.dp, horizontal = 8.dp)
+                                    ) {
+                                        element.headers.forEach { h ->
+                                            Text(
+                                                text = remember(h) { parseInlineMarkdown(h) },
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor,
+                                                modifier = Modifier.width(120.dp).padding(horizontal = 4.dp)
+                                            )
+                                        }
+                                    }
+                                    element.rows.forEach { row ->
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                                        Row(modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
+                                            row.forEach { cell ->
+                                                Text(
+                                                    text = remember(cell) { parseInlineMarkdown(cell) },
+                                                    fontSize = 11.sp,
+                                                    color = textColor,
+                                                    modifier = Modifier.width(120.dp).padding(horizontal = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 

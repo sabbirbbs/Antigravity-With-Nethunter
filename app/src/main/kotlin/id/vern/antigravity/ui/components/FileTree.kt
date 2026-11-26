@@ -79,7 +79,7 @@ fun FileTree(
     var newItemName by remember { mutableStateOf("") }
     var fileToDelete by remember { mutableStateOf<File?>(null) }
 
-    fun loadFiles(dir: File): List<ProjectFile> {
+    fun loadFilesSync(dir: File): List<ProjectFile> {
         val entries = id.vern.antigravity.root.RootNetHunterManager.listDirectoryWithRootFallback(dir)
         return entries.map { entry ->
             val file = File(entry.absolutePath)
@@ -91,14 +91,17 @@ fun FileTree(
                 isDirectory = isDir,
                 sizeBytes = entry.sizeBytes,
                 lastModified = entry.lastModified,
-                children = if (isDir && isExp) loadFiles(file) else emptyList(),
+                children = if (isDir && isExp) loadFilesSync(file) else emptyList(),
                 isExpanded = isExp
             )
         }
     }
 
-    val fileItems = remember(rootDirectory, expandedDirs, refreshTrigger) {
-        loadFiles(rootDirectory)
+    var fileItems by remember { mutableStateOf<List<ProjectFile>>(emptyList()) }
+    androidx.compose.runtime.LaunchedEffect(rootDirectory, expandedDirs, refreshTrigger) {
+        fileItems = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            loadFilesSync(rootDirectory)
+        }
     }
 
     Column(modifier = modifier) {

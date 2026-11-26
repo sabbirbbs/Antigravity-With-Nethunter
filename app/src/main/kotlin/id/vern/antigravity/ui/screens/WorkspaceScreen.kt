@@ -104,10 +104,8 @@ fun WorkspaceScreen(
 
     var rootDir by remember(workspacePath) {
         mutableStateOf(
-            when {
-                workspacePath.isNotBlank() && id.vern.antigravity.root.RootNetHunterManager.pathExistsWithRootFallback(File(workspacePath)) -> File(workspacePath)
-                else -> id.vern.antigravity.root.RootNetHunterManager.ensureDefaultWorkspace(context)
-            }
+            if (workspacePath.isNotBlank()) File(workspacePath)
+            else id.vern.antigravity.root.RootNetHunterManager.ensureDefaultWorkspace(context)
         )
     }
 

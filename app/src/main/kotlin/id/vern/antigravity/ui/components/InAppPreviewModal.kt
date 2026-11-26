@@ -82,6 +82,7 @@ import id.vern.antigravity.root.RootFileEntry
 import id.vern.antigravity.root.RootNetHunterManager
 import id.vern.antigravity.viewmodel.AntigravityViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -388,12 +389,17 @@ private fun InAppWebBrowserContent(
                         )
                     }
 
+                    val diagScope = androidx.compose.runtime.rememberCoroutineScope()
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.surface,
                         modifier = Modifier.clickable {
-                            val (_, out) = RootNetHunterManager.runSuQuick("ss -tlnp 2>/dev/null || netstat -tln 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6", 3000L)
-                            serverDiag = out.ifBlank { "No listening sockets detected." }
+                            diagScope.launch(Dispatchers.IO) {
+                                val (_, out) = RootNetHunterManager.runSuQuick("ss -tlnp 2>/dev/null || netstat -tln 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6", 3000L)
+                                withContext(Dispatchers.Main) {
+                                    serverDiag = out.ifBlank { "No listening sockets detected." }
+                                }
+                            }
                         }
                     ) {
                         Text(

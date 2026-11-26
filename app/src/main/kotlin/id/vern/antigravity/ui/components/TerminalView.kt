@@ -5,6 +5,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -418,16 +419,21 @@ fun TerminalView(
                     )
                 }
 
+                val termScope = androidx.compose.runtime.rememberCoroutineScope()
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = Color(0xFF0F3D2E),
                     modifier = Modifier.clickable {
-                        val (_, portsOut) = id.vern.antigravity.root.RootNetHunterManager.runSuQuick(
-                            "ss -tln 2>/dev/null | awk 'NR>1 {print \$4}' | sed 's/.*://' | grep -E '^[0-9]+$' | grep -vE '^(45158|45161|8085|5037)$' | head -n1",
-                            1500L
-                        )
-                        val port = portsOut.trim().toIntOrNull() ?: 8000
-                        InAppPreviewController.openWebUrl(termContext, "http://127.0.0.1:$port")
+                        termScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val (_, portsOut) = id.vern.antigravity.root.RootNetHunterManager.runSuQuick(
+                                "ss -tln 2>/dev/null | awk 'NR>1 {print \$4}' | sed 's/.*://' | grep -E '^[0-9]+$' | grep -vE '^(45158|45161|8085|5037)$' | head -n1",
+                                1500L
+                            )
+                            val port = portsOut.trim().toIntOrNull() ?: 8000
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                InAppPreviewController.openWebUrl(termContext, "http://127.0.0.1:$port")
+                            }
+                        }
                         safeRequestFocus()
                     }
                 ) {
