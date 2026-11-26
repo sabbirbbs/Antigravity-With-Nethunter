@@ -65,13 +65,17 @@ class SystemGatewayServer(
         running = false
         try {
             serverSocket?.close()
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
         serverSocket = null
+        try {
+            executor.shutdownNow()
+        } catch (_: Exception) {}
     }
 
     private fun handleClient(socket: Socket) {
         socket.use { client ->
             try {
+                client.soTimeout = 10_000
                 val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
                 val firstLine = reader.readLine() ?: return
                 val parts = firstLine.split(" ")
@@ -82,7 +86,7 @@ class SystemGatewayServer(
                 var headerLine = reader.readLine()
                 while (!headerLine.isNullOrEmpty()) {
                     if (headerLine.startsWith("Content-Length:", ignoreCase = true)) {
-                        contentLength = headerLine.substringAfter(":").trim().toIntOrNull() ?: 0
+                        contentLength = headerLine.substringAfter(":").trim().toIntOrNull()?.coerceIn(0, 2_097_152) ?: 0
                     }
                     headerLine = reader.readLine()
                 }
@@ -144,7 +148,7 @@ class SystemGatewayServer(
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             context.startActivity(intent)
-                        } catch (e: Exception) {}
+                        } catch (_: Exception) {}
                     }
                     result.put("opened", url)
                 }
@@ -153,14 +157,22 @@ class SystemGatewayServer(
                 if (json.has("text")) {
                     val text = json.getString("text")
                     mainHandler.post {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("agy", text))
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("agy", text))
                     }
                     result.put("set", true)
                 } else {
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val text = cm.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                    result.put("clipboard", text)
+                    var clipText = ""
+                    val latch = java.util.concurrent.CountDownLatch(1)
+                    mainHandler.post {
+                        try {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipText = cm?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                        } catch (_: Exception) {}
+                        latch.countDown()
+                    }
+                    try { latch.await(1500, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: Exception) {}
+                    result.put("clipboard", clipText)
                 }
             }
             "wakelock" -> {

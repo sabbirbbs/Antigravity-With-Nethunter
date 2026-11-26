@@ -148,7 +148,7 @@ object RootNetHunterManager {
             val pb = ProcessBuilder("su", "-mm", "-c", command)
             pb.redirectErrorStream(true)
             val proc = pb.start()
-            val out = StringBuilder()
+            val out = StringBuffer()
             val readerThread = Thread {
                 try {
                     BufferedReader(InputStreamReader(proc.inputStream, Charsets.UTF_8)).use { br ->
@@ -159,11 +159,13 @@ object RootNetHunterManager {
                         }
                     }
                 } catch (_: Exception) {}
-            }
+            }.apply { isDaemon = true }
             readerThread.start()
             val finished = proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
             if (!finished) {
-                proc.destroyForcibly()
+                try { proc.outputStream.close() } catch (_: Exception) {}
+                try { proc.inputStream.close() } catch (_: Exception) {}
+                try { proc.destroyForcibly() } catch (_: Exception) {}
                 readerThread.join(300)
                 return Pair(-1, "Timed out")
             }
@@ -252,7 +254,8 @@ object RootNetHunterManager {
         val mountCmd = """
             set -e
             CHROOT='$escChroot'
-            [ -d "${'$'}CHROOT" ] || exit 1
+            [ -n "${'$'}CHROOT" ] && [ "${'$'}CHROOT" != "/" ] && [ -d "${'$'}CHROOT" ] || exit 1
+            [ -f "${'$'}CHROOT/etc/kali_version" ] || [ -f "${'$'}CHROOT/etc/debian_version" ] || [ -x "${'$'}CHROOT/bin/bash" ] || exit 1
             mkdir -p "${'$'}CHROOT/proc" "${'$'}CHROOT/sys" "${'$'}CHROOT/dev" "${'$'}CHROOT/dev/pts" "${'$'}CHROOT/dev/shm"
             mkdir -p "${'$'}CHROOT/sdcard" "${'$'}CHROOT/storage/emulated/0" "${'$'}CHROOT/opt/antigravity" "${'$'}CHROOT/root"
             mkdir -p '$escWs'
@@ -282,8 +285,10 @@ object RootNetHunterManager {
             fi
 
             ln -sfn /sdcard/Antigravity "${'$'}CHROOT/root/workspace" 2>/dev/null || true
-            mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true
-            ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true
+            if [ -f "${'$'}CHROOT/etc/kali_version" ] || [ -f "${'$'}CHROOT/etc/debian_version" ]; then
+                mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true
+                ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true
+            fi
 
             if [ ! -s "${'$'}CHROOT/etc/resolv.conf" ] || ! grep -q "nameserver" "${'$'}CHROOT/etc/resolv.conf" 2>/dev/null; then
                 printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > "${'$'}CHROOT/etc/resolv.conf"
@@ -361,15 +366,18 @@ object RootNetHunterManager {
                         /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                         *) CHROOT_CWD="/sdcard/Antigravity" ;;
                     esac
-                    if [ "${'$'}(id -u)" = "0" ]; then
+                    if [ "${'$'}(id -u)" = "0" ] && [ -n "${'$'}CHROOT" ] && [ "${'$'}CHROOT" != "/" ] && [ -d "${'$'}CHROOT" ]; then
                         unset LD_PRELOAD LD_LIBRARY_PATH
                         [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
-                        [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                        grep -qs " ${'$'}CHROOT/dev " /proc/mounts || [ -c "${'$'}CHROOT/dev/null" ] || mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true
+                        grep -qs " ${'$'}CHROOT/dev/pts " /proc/mounts || mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true
                         [ -d "${'$'}CHROOT/sys/kernel" ] || mount -t sysfs sysfs "${'$'}CHROOT/sys" 2>/dev/null || true
                         [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
                         [ -d "${'$'}CHROOT/storage/emulated/0/Android" ] || { mkdir -p "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/storage/emulated/0" 2>/dev/null || true; }
                         [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
-                        [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                        if [ -f "${'$'}CHROOT/etc/kali_version" ] || [ -f "${'$'}CHROOT/etc/debian_version" ]; then
+                            [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                        fi
                         exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "${'$'}1" 2>/dev/null || cd /root; shift; exec "${'$'}0" "${'$'}@"' "$tool" "${'$'}CHROOT_CWD" "${'$'}@"
                     fi
                     CHROOT_ESC=${'$'}(printf '%s' "${'$'}CHROOT" | sed "s/'/'\\\\''/g")
@@ -416,7 +424,7 @@ object RootNetHunterManager {
                     fi
                 done
             fi
-            if [ ! -d "${'$'}CHROOT" ]; then
+            if [ -z "${'$'}CHROOT" ] || [ "${'$'}CHROOT" = "/" ] || [ ! -d "${'$'}CHROOT" ]; then
                 echo "[kali] Error: Kali NetHunter chroot not found." >&2
                 exit 1
             fi
@@ -426,7 +434,7 @@ object RootNetHunterManager {
                 /storage/emulated/0*|/sdcard*) CHROOT_CWD="${'$'}CUR_DIR" ;;
                 *) CHROOT_CWD="/sdcard/Antigravity" ;;
             esac
-            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0' '${'$'}CHROOT/opt/antigravity' '${'$'}CHROOT/system/bin'; ln -sfn /bin/sh '${'$'}CHROOT/system/bin/sh' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true; [ -x '${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv' ] || { umount -l '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; };"
+            MOUNT_PREP="unset LD_PRELOAD LD_LIBRARY_PATH; [ -n '${'$'}CHROOT' ] && [ '${'$'}CHROOT' != '/' ] && { mkdir -p '${'$'}CHROOT/sdcard' '${'$'}CHROOT/storage/emulated/0' '${'$'}CHROOT/opt/antigravity'; if [ -f '${'$'}CHROOT/etc/kali_version' ] || [ -f '${'$'}CHROOT/etc/debian_version' ]; then mkdir -p '${'$'}CHROOT/system/bin'; ln -sfn /bin/sh '${'$'}CHROOT/system/bin/sh' 2>/dev/null || true; fi; grep -qs ' ${'$'}CHROOT/proc ' /proc/mounts || mount -t proc proc '${'$'}CHROOT/proc'; grep -qs ' ${'$'}CHROOT/sys ' /proc/mounts || mount -t sysfs sysfs '${'$'}CHROOT/sys'; grep -qs ' ${'$'}CHROOT/dev ' /proc/mounts || mount -o bind /dev '${'$'}CHROOT/dev'; grep -qs ' ${'$'}CHROOT/dev/pts ' /proc/mounts || mount -t devpts devpts '${'$'}CHROOT/dev/pts' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/sdcard ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/sdcard' 2>/dev/null || true; grep -qs ' ${'$'}CHROOT/storage/emulated/0 ' /proc/mounts || mount -o bind /storage/emulated/0 '${'$'}CHROOT/storage/emulated/0' 2>/dev/null || true; [ -x '${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv' ] || { umount -l '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' '${'$'}CHROOT/opt/antigravity' 2>/dev/null || true; }; };"
             if [ "${'$'}#" -eq 0 ]; then
                 RUN_LINE="${'$'}MOUNT_PREP exec chroot '${'$'}CHROOT' /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l"
             else
@@ -461,10 +469,11 @@ object RootNetHunterManager {
             esac
 
             if [ -z "${'$'}ARG_CMD" ]; then
-                if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
+                if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -n "${'$'}CHROOT" ] && [ "${'$'}CHROOT" != "/" ] && [ -d "${'$'}CHROOT" ]; then
                     if [ "${'$'}(id -u)" = "0" ]; then
                         [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
-                        [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                        grep -qs " ${'$'}CHROOT/dev " /proc/mounts || [ -c "${'$'}CHROOT/dev/null" ] || mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true
+                        grep -qs " ${'$'}CHROOT/dev/pts " /proc/mounts || mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true
                         [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
                         [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
                         exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin /bin/bash -l
@@ -479,7 +488,7 @@ object RootNetHunterManager {
                     ;;
             esac
 
-            if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -d "${'$'}CHROOT" ]; then
+            if [ "${'$'}MODE" = "KALI_NETHUNTER" ] && [ -n "${'$'}CHROOT" ] && [ "${'$'}CHROOT" != "/" ] && [ -d "${'$'}CHROOT" ]; then
                 CUR_DIR="${'$'}(pwd 2>/dev/null || echo '$wsDefault')"
                 case "${'$'}CUR_DIR" in
                     "${'$'}CHROOT"*) CHROOT_CWD="${'$'}{CUR_DIR#"${'$'}CHROOT"}"; [ -z "${'$'}CHROOT_CWD" ] && CHROOT_CWD="/" ;;
@@ -488,10 +497,13 @@ object RootNetHunterManager {
                 esac
                 if [ "${'$'}(id -u)" = "0" ]; then
                     [ -e "${'$'}CHROOT/proc/uptime" ] || mount -t proc proc "${'$'}CHROOT/proc" 2>/dev/null || true
-                    [ -d "${'$'}CHROOT/dev/pts" ] || { mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true; mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true; }
+                    grep -qs " ${'$'}CHROOT/dev " /proc/mounts || [ -c "${'$'}CHROOT/dev/null" ] || mount -o bind /dev "${'$'}CHROOT/dev" 2>/dev/null || true
+                    grep -qs " ${'$'}CHROOT/dev/pts " /proc/mounts || mount -t devpts devpts "${'$'}CHROOT/dev/pts" 2>/dev/null || true
                     [ -d "${'$'}CHROOT/sdcard/Android" ] || { mkdir -p "${'$'}CHROOT/sdcard" 2>/dev/null || true; mount -o bind /storage/emulated/0 "${'$'}CHROOT/sdcard" 2>/dev/null || true; }
                     [ -x "${'$'}CHROOT/opt/antigravity/usr/bin/agy-srv" ] || { umount -l "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mkdir -p "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; mount -o bind '${filesDir.absolutePath}' "${'$'}CHROOT/opt/antigravity" 2>/dev/null || true; }
-                    [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                    if [ -f "${'$'}CHROOT/etc/kali_version" ] || [ -f "${'$'}CHROOT/etc/debian_version" ]; then
+                        [ -e "${'$'}CHROOT/system/bin/sh" ] || { mkdir -p "${'$'}CHROOT/system/bin" 2>/dev/null || true; ln -sfn /bin/sh "${'$'}CHROOT/system/bin/sh" 2>/dev/null || true; }
+                    fi
                     exec chroot "${'$'}CHROOT" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/antigravity/usr/bin DEBIAN_FRONTEND=noninteractive /bin/bash -c 'cd "$1" 2>/dev/null || cd /root; exec /bin/bash -c "$2"' _ "${'$'}CHROOT_CWD" "${'$'}ARG_CMD"
                 fi
                 exec "${prefix.absolutePath}/bin/bash" -c "${'$'}ARG_CMD"
@@ -801,6 +813,12 @@ object RootNetHunterManager {
     fun copyFileToAccessibleTemp(context: Context, src: File): File? {
         return try {
             val cacheDir = File(context.cacheDir, "root_preview").apply { mkdirs() }
+            val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
+            cacheDir.listFiles()?.forEach { old ->
+                if (old.isFile && old.lastModified() < cutoff) {
+                    try { old.delete() } catch (_: Exception) {}
+                }
+            }
             val dest = File(cacheDir, "${System.currentTimeMillis()}_${src.name}")
             if (src.exists() && src.canRead()) {
                 src.copyTo(dest, overwrite = true)
@@ -860,15 +878,43 @@ object RootNetHunterManager {
     }
 
     fun readFileTextWithRootFallback(file: File): String? {
+        val maxPreviewBytes = 1024 * 1024 // 1 MB safe preview cap
         try {
             if (file.exists() && file.canRead()) {
-                return if (file.length() < 2 * 1024 * 1024) file.readText() else ""
+                val totalLen = file.length()
+                val bytes = ByteArray(maxPreviewBytes.coerceAtMost(totalLen.toInt().coerceAtLeast(0)))
+                val readCount = file.inputStream().use { input ->
+                    var offset = 0
+                    while (offset < bytes.size) {
+                        val n = input.read(bytes, offset, bytes.size - offset)
+                        if (n <= 0) break
+                        offset += n
+                    }
+                    offset
+                }
+                val sniffLen = readCount.coerceAtMost(4096)
+                for (idx in 0 until sniffLen) {
+                    if (bytes[idx] == 0.toByte()) {
+                        return "[Binary file (${totalLen} bytes) — use 'Open With' or external tools to inspect.]"
+                    }
+                }
+                val text = String(bytes, 0, readCount, Charsets.UTF_8)
+                return if (totalLen > maxPreviewBytes) {
+                    "$text\n\n... [Truncated preview: showing first 1 MB of $totalLen bytes] ..."
+                } else {
+                    text
+                }
             }
         } catch (_: Exception) {}
         if (cachedStatus?.hasRoot != true) return null
         val esc = shellEscape(file.absolutePath)
-        val (exit, out) = runSuQuick("head -c 2097152 '$esc'", 5000L)
-        return if (exit == 0) out else null
+        val (exit, out) = runSuQuick("if head -c 4096 '$esc' 2>/dev/null | tr -dc '\\0' | grep -q .; then echo '__AGY_BINARY_FILE__'; else head -c $maxPreviewBytes '$esc'; fi", 5000L)
+        if (exit != 0) return null
+        return if (out.startsWith("__AGY_BINARY_FILE__")) {
+            "[Binary file — use 'Open With' or external tools to inspect.]"
+        } else {
+            out
+        }
     }
 
     fun writeFileTextWithRootFallback(file: File, content: String): Boolean {

@@ -79,6 +79,8 @@ object ConversationPersistence {
         try {
             val convDir = File(context.filesDir, "conversations").apply { mkdirs() }
             val file = File(convDir, "$conversationId.json")
+            val tmpFile = File(convDir, "$conversationId.json.tmp")
+            val bakFile = File(convDir, "$conversationId.json.bak")
             val array = JSONArray()
             for (msg in messages) {
                 val obj = JSONObject().apply {
@@ -133,7 +135,14 @@ object ConversationPersistence {
                 }
                 array.put(obj)
             }
-            file.writeText(array.toString())
+            tmpFile.writeText(array.toString(), Charsets.UTF_8)
+            if (file.exists() && file.length() > 2L) {
+                try { file.copyTo(bakFile, overwrite = true) } catch (_: Exception) {}
+            }
+            if (!tmpFile.renameTo(file)) {
+                file.writeText(array.toString(), Charsets.UTF_8)
+                tmpFile.delete()
+            }
         } catch (e: Exception) {
             Log.w("ConversationPersistence", "Failed saving messages for conversation $conversationId: ${e.message}")
         }
@@ -141,15 +150,22 @@ object ConversationPersistence {
 
     fun loadMessagesForConversation(context: Context, conversationId: String): List<ChatMessage> {
         try {
-            val file = File(File(context.filesDir, "conversations"), "$conversationId.json")
-            if (!file.exists()) {
+            val convDir = File(context.filesDir, "conversations")
+            val file = File(convDir, "$conversationId.json")
+            val bakFile = File(convDir, "$conversationId.json.bak")
+            if (!file.exists() && !bakFile.exists()) {
                 val transcriptMessages = TranscriptTurnParser.parseTranscriptToMessages(context, conversationId)
                 if (transcriptMessages.isNotEmpty()) return transcriptMessages
                 return emptyList()
             }
-            val text = file.readText()
-            if (text.isBlank()) return emptyList()
-            val array = JSONArray(text)
+            val array = listOf(file, bakFile).firstNotNullOfOrNull { candidate ->
+                if (candidate.exists() && candidate.length() > 0L) {
+                    try {
+                        val t = candidate.readText(Charsets.UTF_8)
+                        if (t.isNotBlank()) JSONArray(t) else null
+                    } catch (_: Exception) { null }
+                } else null
+            } ?: return emptyList()
             val result = mutableListOf<ChatMessage>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
@@ -230,8 +246,11 @@ object ConversationPersistence {
 
     fun deleteConversationFile(context: Context, conversationId: String) {
         try {
-            val file = File(File(context.filesDir, "conversations"), "$conversationId.json")
-            if (file.exists()) file.delete()
-        } catch (e: Exception) {}
+            val convDir = File(context.filesDir, "conversations")
+            listOf("$conversationId.json", "$conversationId.json.bak", "$conversationId.json.tmp").forEach { name ->
+                val f = File(convDir, name)
+                if (f.exists()) f.delete()
+            }
+        } catch (_: Exception) {}
     }
 }

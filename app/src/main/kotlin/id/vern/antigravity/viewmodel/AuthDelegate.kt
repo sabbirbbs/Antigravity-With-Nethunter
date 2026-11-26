@@ -60,24 +60,24 @@ class AuthDelegate {
         scope: CoroutineScope,
         onRefreshUserQuota: (Context) -> Unit
     ) {
-        OAuthManager.checkAndImportExistingToken(context)
-        val allAccounts = AccountManager.getAccounts(context)
-        mutableAccounts.value = allAccounts
-        val email = OAuthManager.getUserEmail(context)
-        mutableUserEmail.value = email
-        val name = OAuthManager.getUserName(context) ?: if (email != null) {
-            email.substringBefore("@").replace(".", " ").split(" ")
-                .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
-        } else ""
-        mutableUserName.value = name
-        val pic = OAuthManager.getUserPicture(context)
-        if (!pic.isNullOrBlank()) {
-            mutableUserPicture.value = pic
-        }
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            OAuthManager.checkAndImportExistingToken(context)
+            val allAccounts = AccountManager.getAccounts(context)
+            mutableAccounts.value = allAccounts
+            val email = OAuthManager.getUserEmail(context)
+            mutableUserEmail.value = email
+            val name = OAuthManager.getUserName(context) ?: if (email != null) {
+                email.substringBefore("@").replace(".", " ").split(" ")
+                    .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+            } else ""
+            mutableUserName.value = name
+            val pic = OAuthManager.getUserPicture(context)
+            if (!pic.isNullOrBlank()) {
+                mutableUserPicture.value = pic
+            }
 
-        onRefreshUserQuota(context)
+            onRefreshUserQuota(context)
 
-        scope.launch {
             if (OAuthManager.refreshTokenIfNeeded(context)) {
                 val newEmail = OAuthManager.getUserEmail(context)
                 mutableUserEmail.value = newEmail

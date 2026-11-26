@@ -7,6 +7,8 @@ import id.vern.antigravity.oauth.OAuthManager
 import id.vern.antigravity.root.ExecutionMode
 import id.vern.antigravity.root.RootNetHunterManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -14,6 +16,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -141,7 +144,7 @@ object EngineExecutor {
                     append("export GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0; ")
                     if (validGitExec != null) append("export GIT_EXEC_PATH='${RootNetHunterManager.shellEscape(validGitExec.absolutePath)}'; ")
                     append("export GIT_TEMPLATE_DIR='${RootNetHunterManager.shellEscape(validGitTemplate.absolutePath)}'; ")
-                    append("export TERM=xterm-256color LANG=en_US.UTF-8 GODEBUG=netdns=go; ")
+                    append("export TERM=xterm-256color LANG=en_US.UTF-8 GODEBUG=netdns=cgo; ")
                     append("export AGY_APPLICATION_ID='${context.packageName}' APPLICATION_ID='${context.packageName}'; ")
                     append("export AGY_EXEC_MODE=ROOT_ANDROID; ")
                     if (!chrootPath.isNullOrBlank()) append("export AGY_CHROOT_DIR='${RootNetHunterManager.shellEscape(chrootPath)}'; ")
@@ -173,7 +176,7 @@ object EngineExecutor {
                     env["CURL_CA_BUNDLE"] = certFile.absolutePath
                     env["GIT_SSL_CAINFO"] = certFile.absolutePath
                     env["OPENSSL_CONF"] = File(filesDir, "usr/etc/tls/openssl.cnf").absolutePath
-                    env["GODEBUG"] = "netdns=go"
+                    env["GODEBUG"] = "netdns=cgo"
                     env["AGY_APPLICATION_ID"] = context.packageName
                     env["APPLICATION_ID"] = context.packageName
                     env["AGY_EXEC_MODE"] = ExecutionMode.SANDBOX.name
@@ -185,23 +188,35 @@ object EngineExecutor {
 
             val stdoutThread = Thread {
                 streamOutput(process.inputStream, false, onOutput)
-            }
+            }.apply { isDaemon = true }
 
             val stderrThread = Thread {
                 streamOutput(process.errorStream, true, onOutput)
-            }
+            }.apply { isDaemon = true }
 
             stdoutThread.start()
             stderrThread.start()
 
             val exitCode = try {
-                process.waitFor()
+                while (!process.waitFor(250L, TimeUnit.MILLISECONDS)) {
+                    if (!currentCoroutineContext().isActive) {
+                        throw kotlinx.coroutines.CancellationException("Command cancelled")
+                    }
+                }
+                process.exitValue()
             } finally {
-                try { process.outputStream.close() } catch (e: Exception) {}
+                try { process.outputStream.close() } catch (_: Exception) {}
+                if (process.isAlive) {
+                    try { process.inputStream.close() } catch (_: Exception) {}
+                    try { process.errorStream.close() } catch (_: Exception) {}
+                    try { process.destroyForcibly() } catch (_: Exception) {}
+                }
             }
             stdoutThread.join(1000)
             stderrThread.join(1000)
             exitCode
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             onOutput("Execution error: ${e.message}", true, false)
             -1
@@ -455,7 +470,7 @@ object EngineExecutor {
         val engineDir = File(filesDir, "engine")
         val esc = RootNetHunterManager::shellEscape
 
-        if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
+        if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank() && chrootPath != "/") {
             val chrootCwd = RootNetHunterManager.translatePathForChroot(targetCwd.absolutePath, chrootPath)
             val escChroot = esc(chrootPath)
             val escFiles = esc(filesDir.absolutePath)
@@ -470,7 +485,8 @@ object EngineExecutor {
                 append("mkdir -p \"\$CHROOT/proc\" \"\$CHROOT/sys\" \"\$CHROOT/dev\" \"\$CHROOT/dev/pts\" \"\$CHROOT/dev/shm\" \"\$CHROOT/sdcard\" \"\$CHROOT/storage/emulated/0\" \"\$CHROOT/opt/antigravity\" \"\$CHROOT$escFiles\" \"\$CHROOT/tmp\" 2>/dev/null || true; ")
                 append("[ -e \"\$CHROOT/proc/uptime\" ] || mount -t proc proc \"\$CHROOT/proc\" 2>/dev/null || true; ")
                 append("[ -d \"\$CHROOT/sys/kernel\" ] || mount -t sysfs sysfs \"\$CHROOT/sys\" 2>/dev/null || true; ")
-                append("[ -d \"\$CHROOT/dev/pts\" ] || { mount -o bind /dev \"\$CHROOT/dev\" 2>/dev/null || true; mount -t devpts devpts \"\$CHROOT/dev/pts\" -o gid=5,mode=620 2>/dev/null || mount -o bind /dev/pts \"\$CHROOT/dev/pts\" 2>/dev/null || true; }; ")
+                append("grep -qs \" \$CHROOT/dev \" /proc/mounts || [ -c \"\$CHROOT/dev/null\" ] || mount -o bind /dev \"\$CHROOT/dev\" 2>/dev/null || true; ")
+                append("grep -qs \" \$CHROOT/dev/pts \" /proc/mounts || mount -t devpts devpts \"\$CHROOT/dev/pts\" -o gid=5,mode=620 2>/dev/null || mount -o bind /dev/pts \"\$CHROOT/dev/pts\" 2>/dev/null || true; ")
                 append("grep -qs \" \$CHROOT/dev/shm \" /proc/mounts || mount -t tmpfs -o size=256M tmpfs \"\$CHROOT/dev/shm\" 2>/dev/null || true; ")
                 append("STORAGE_SRC='/data/media/0'; [ -d '/storage/emulated/0' ] && STORAGE_SRC='/storage/emulated/0'; ")
                 append("[ -d \"\$CHROOT/sdcard/Android\" ] || mount -o bind \"\$STORAGE_SRC\" \"\$CHROOT/sdcard\" 2>/dev/null || true; ")

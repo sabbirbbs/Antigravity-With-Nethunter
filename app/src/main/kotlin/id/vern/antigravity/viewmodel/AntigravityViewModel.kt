@@ -539,16 +539,18 @@ class AntigravityViewModel : ViewModel() {
         )
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             id.vern.antigravity.root.RootNetHunterManager.deployRootAndNetHunterTools(context)
-        }
-        if (!id.vern.antigravity.root.RootNetHunterManager.hasInitializedDefaultWorkspace(context)) {
-            val defaultDir = id.vern.antigravity.root.RootNetHunterManager.ensureDefaultWorkspace(context)
-            val currentWs = workspacePath.value
-            val internalHome = File(context.filesDir, "home").absolutePath
-            if (currentWs.isBlank() || currentWs == internalHome) {
-                setWorkspacePath(context, defaultDir.absolutePath)
-                addProject(context, defaultDir.absolutePath)
+            if (!id.vern.antigravity.root.RootNetHunterManager.hasInitializedDefaultWorkspace(context)) {
+                val defaultDir = id.vern.antigravity.root.RootNetHunterManager.ensureDefaultWorkspace(context)
+                val currentWs = workspacePath.value
+                val internalHome = File(context.filesDir, "home").absolutePath
+                if (currentWs.isBlank() || currentWs == internalHome) {
+                    withContext(Dispatchers.Main) {
+                        setWorkspacePath(context, defaultDir.absolutePath)
+                        addProject(context, defaultDir.absolutePath)
+                    }
+                }
+                id.vern.antigravity.root.RootNetHunterManager.markDefaultWorkspaceInitialized(context)
             }
-            id.vern.antigravity.root.RootNetHunterManager.markDefaultWorkspaceInitialized(context)
         }
         refreshNetHunterStatus(context)
         refreshAuthState(context)
@@ -1904,6 +1906,8 @@ class AntigravityViewModel : ViewModel() {
                     val model = selectedModel.value
                     val thinking = thinkingBudget.value
                     val outputSb = StringBuilder()
+                    val errorSb = StringBuilder()
+                    val agyLineLock = Any()
 
                     val rawCliId = selectedModelCliId.value?.trim().orEmpty()
                     val cliId = AgyModelsService.cleanModelId(rawCliId)
@@ -1940,7 +1944,10 @@ class AntigravityViewModel : ViewModel() {
 
                     while (autoContinue && currentTurn < maxAutoTurns && coroutineContext.isActive) {
                         currentTurn++
-                        outputSb.clear()
+                        synchronized(agyLineLock) {
+                            outputSb.clear()
+                            errorSb.clear()
+                        }
 
                         val args = mutableListOf<String>()
                         val currentSec = securityPreset.value.lowercase()
@@ -1994,7 +2001,8 @@ class AntigravityViewModel : ViewModel() {
                             addLog("Agent", "Autonomous turn $currentTurn started...")
                         }
 
-                        val onAgyLine: (String, Boolean) -> Unit = { line, _ ->
+                        val onAgyLine: (String, Boolean) -> Unit = { line, isErr ->
+                        synchronized(agyLineLock) {
                         val trimmed = line.trim()
                         val match = authUrlRegex.find(trimmed)
                         if (match != null) {
@@ -2402,21 +2410,29 @@ class AntigravityViewModel : ViewModel() {
                             }
                         } else if (trimmed.isNotEmpty()) {
                             if (!trimmed.startsWith("Get:") && !trimmed.startsWith("#") && !trimmed.startsWith("Unpacking")) {
-                                TerminalSessionManager.appendAgyLine(line)
-                                outputSb.append(line).append("\n")
-                                val now = System.currentTimeMillis()
-                                if (now - lastStreamUpdateMs > 250L) {
-                                    lastStreamUpdateMs = now
-                                    val currentOutput = outputSb.toString()
-                                    mutableChatMessages.update { list ->
-                                        list.map { msg ->
-                                            if (msg.id == assistantMsgId) {
-                                                msg.copy(content = currentOutput)
-                                            } else msg
+                                if (isErr) {
+                                    TerminalSessionManager.appendAgyLine(line, isError = true)
+                                    if (errorSb.length < 4096) {
+                                        errorSb.append(line).append("\n")
+                                    }
+                                } else {
+                                    TerminalSessionManager.appendAgyLine(line)
+                                    outputSb.append(line).append("\n")
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastStreamUpdateMs > 250L) {
+                                        lastStreamUpdateMs = now
+                                        val currentOutput = outputSb.toString()
+                                        mutableChatMessages.update { list ->
+                                            list.map { msg ->
+                                                if (msg.id == assistantMsgId) {
+                                                    msg.copy(content = currentOutput)
+                                                } else msg
+                                            }
                                         }
                                     }
                                 }
                             }
+                        }
                         }
                     }
 
@@ -2438,21 +2454,22 @@ class AntigravityViewModel : ViewModel() {
                             EngineExecutor.executeAgy(context, args, workingDir = validWsDir, onOutputLine = onAgyLine)
                         }
 
-                        if (outputSb.isNotEmpty()) {
-                            val finalCurrentOutput = outputSb.toString()
+                        val snapshotOutput = synchronized(agyLineLock) { outputSb.toString() }
+                        val snapshotError = synchronized(agyLineLock) { errorSb.toString() }
+                        if (snapshotOutput.isNotEmpty()) {
                             mutableChatMessages.update { list ->
                                 list.map { msg ->
-                                    if (msg.id == assistantMsgId && msg.content != finalCurrentOutput) {
-                                        msg.copy(content = finalCurrentOutput)
+                                    if (msg.id == assistantMsgId && msg.content != snapshotOutput) {
+                                        msg.copy(content = snapshotOutput)
                                     } else msg
                                 }
                             }
                         }
 
-                        val outputStr = outputSb.toString()
-                        authRequired = outputStr.contains("authentication required", ignoreCase = true) ||
-                                outputStr.contains("authentication failed", ignoreCase = true) ||
-                                outputStr.contains("visit the url to log in", ignoreCase = true)
+                        val combinedCheck = "$snapshotOutput\n$snapshotError"
+                        authRequired = combinedCheck.contains("authentication required", ignoreCase = true) ||
+                                combinedCheck.contains("authentication failed", ignoreCase = true) ||
+                                combinedCheck.contains("visit the url to log in", ignoreCase = true)
 
                         val intermediateParsed = parseTranscriptTurn(context, activeCliConvId)
                         val transcriptResponse = intermediateParsed.assistantResponse
@@ -2533,12 +2550,16 @@ class AntigravityViewModel : ViewModel() {
                     }
 
                     val transcriptResponse = finalParsed.assistantResponse
+                    val finalOutputText = synchronized(agyLineLock) { outputSb.toString().trim() }
+                    val finalErrorText = synchronized(agyLineLock) { errorSb.toString().trim() }
                     val finalContent = if (exitCode != 0 && authRequired) {
                         context.getString(R.string.chat_auth_required_error)
-                    } else if (outputSb.isNotEmpty()) {
-                        outputSb.toString().trim()
+                    } else if (finalOutputText.isNotEmpty()) {
+                        finalOutputText
                     } else if (!transcriptResponse.isNullOrBlank()) {
                         transcriptResponse
+                    } else if (exitCode != 0) {
+                        finalErrorText.ifEmpty { "Execution exited with code $exitCode" }
                     } else if (finalSteps.isNotEmpty()) {
                         val executedNames = finalSteps.filter { it.kind != AgentStepKind.THOUGHT }.map { it.title }
                         if (executedNames.isNotEmpty()) {
@@ -2622,36 +2643,48 @@ class AntigravityViewModel : ViewModel() {
 
         try {
             val statusMap = mutableMapOf<String, String>()
-            EngineExecutor.executeCommand(context, "cd '${root.absolutePath}' && git status --porcelain 2>/dev/null") { line, exitCode ->
-                val trimmed = line.trim()
-                if (trimmed.length >= 3) {
-                    val st = trimmed.substring(0, 2).trim()
-                    val path = trimmed.substring(2).trim().trim('"', '\'')
-                    val statusDesc = when {
-                        st.contains("D") -> "D"
-                        st.contains("A") || st.contains("?") -> "A"
-                        else -> "M"
-                    }
-                    statusMap[path] = statusDesc
-                }
-            }
-
             val numstats = mutableListOf<Triple<String, Int, Int>>()
-            EngineExecutor.executeCommand(context, "cd '${root.absolutePath}' && git diff --numstat 2>/dev/null") { line, exitCode ->
-                val parts = line.trim().split(Regex("""\s+"""))
-                if (parts.size >= 3) {
-                    val add = parts[0].toIntOrNull() ?: 0
-                    val del = parts[1].toIntOrNull() ?: 0
-                    val path = parts[2].trim().trim('"', '\'')
-                    numstats.add(Triple(path, add, del))
+            val combinedCmd = "cd '${id.vern.antigravity.root.RootNetHunterManager.shellEscape(root.absolutePath)}' && " +
+                "echo '__AGY_STATUS__' && git status --porcelain 2>/dev/null && " +
+                "echo '__AGY_NUMSTAT__' && git diff --numstat 2>/dev/null"
+            var section = 0
+            withTimeoutOrNull(8_000L) {
+                EngineExecutor.executeCommand(context, combinedCmd) { line, isErr ->
+                    if (isErr) return@executeCommand
+                    val t = line.trim()
+                    if (t == "__AGY_STATUS__") { section = 1; return@executeCommand }
+                    if (t == "__AGY_NUMSTAT__") { section = 2; return@executeCommand }
+                    if (section == 1 && t.length >= 3) {
+                        val st = t.substring(0, 2).trim()
+                        val path = t.substring(2).trim().trim('"', '\'')
+                        val statusDesc = when {
+                            st.contains("D") -> "D"
+                            st.contains("A") || st.contains("?") -> "A"
+                            else -> "M"
+                        }
+                        statusMap[path] = statusDesc
+                    } else if (section == 2) {
+                        val parts = t.split(Regex("""\s+"""))
+                        if (parts.size >= 3) {
+                            val add = parts[0].toIntOrNull() ?: 0
+                            val del = parts[1].toIntOrNull() ?: 0
+                            val path = parts[2].trim().trim('"', '\'')
+                            numstats.add(Triple(path, add, del))
+                        }
+                    }
                 }
             }
 
             val diffsMap = mutableMapOf<String, String>()
             if (numstats.isNotEmpty() && numstats.size <= 30) {
                 val combinedDiffSb = StringBuilder()
-                EngineExecutor.executeCommand(context, "cd '${root.absolutePath}' && git diff -U3 2>/dev/null | head -n 1200") { line, isErr ->
-                    combinedDiffSb.append(line).append("\n")
+                withTimeoutOrNull(8_000L) {
+                    EngineExecutor.executeCommand(
+                        context,
+                        "cd '${id.vern.antigravity.root.RootNetHunterManager.shellEscape(root.absolutePath)}' && git diff -U3 2>/dev/null | head -n 1200"
+                    ) { line, isErr ->
+                        if (!isErr) combinedDiffSb.append(line).append("\n")
+                    }
                 }
                 val fullDiff = combinedDiffSb.toString()
                 if (fullDiff.isNotBlank()) {

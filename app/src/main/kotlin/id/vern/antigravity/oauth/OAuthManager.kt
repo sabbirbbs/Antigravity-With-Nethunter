@@ -72,6 +72,7 @@ migrations:  {
     private var cachedHasToken: Boolean? = null
     @Volatile
     private var cachedTokenFile: File? = null
+    private val tokenSyncLock = Any()
 
     fun invalidateCache() {
         cachedHasToken = null
@@ -153,10 +154,10 @@ migrations:  {
         return result
     }
 
-    fun checkAndImportExistingToken(context: Context, force: Boolean = false) {
+    fun checkAndImportExistingToken(context: Context, force: Boolean = false) = synchronized(tokenSyncLock) {
         val now = System.currentTimeMillis()
         if (!force && now - lastTokenCheckTimeMs < 10_000L) {
-            return
+            return@synchronized
         }
         lastTokenCheckTimeMs = now
         val targets = getAllTokenTargets(context)
@@ -190,7 +191,7 @@ migrations:  {
         AccountManager.importExistingTokenIfEmpty(context)
     }
 
-    fun syncCompanionStateFiles(context: Context) {
+    fun syncCompanionStateFiles(context: Context) = synchronized(tokenSyncLock) {
         val dirs = getTargetDirs(context)
         for (dir in dirs) {
             try {

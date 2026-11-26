@@ -152,6 +152,34 @@ object TerminalSessionManager {
     private var isAgyFlushPending = false
     private val pendingAgyLines = java.util.concurrent.ConcurrentLinkedQueue<TerminalLine>()
 
+    private fun scheduleAgyFlush() {
+        if (isAgyFlushPending) return
+        isAgyFlushPending = true
+        mainHandler.postDelayed({ flushPendingAgyLines() }, 30L)
+    }
+
+    private fun flushPendingAgyLines() {
+        isAgyFlushPending = false
+        try {
+            if (currentSessionName.value == AGY_SESSION_NAME) {
+                var count = 0
+                while (!pendingAgyLines.isEmpty() && count < 200) {
+                    val l = pendingAgyLines.poll() ?: break
+                    lines.add(l)
+                    count++
+                }
+                if (lines.size > 50000) {
+                    lines.removeRange(0, lines.size - 50000)
+                }
+                if (!pendingAgyLines.isEmpty()) {
+                    scheduleAgyFlush()
+                }
+            } else {
+                pendingAgyLines.clear()
+            }
+        } catch (_: Exception) {}
+    }
+
     fun appendAgyLine(text: String, isError: Boolean = false, isCommand: Boolean = false) {
         val clean = cleanAnsi(text)
         if (clean.isEmpty()) return
@@ -171,30 +199,8 @@ object TerminalSessionManager {
             }
         }
 
-        if (currentSessionName.value == AGY_SESSION_NAME && !isAgyFlushPending) {
-            isAgyFlushPending = true
-            mainHandler.postDelayed({
-                isAgyFlushPending = false
-                try {
-                    if (currentSessionName.value == AGY_SESSION_NAME) {
-                        var count = 0
-                        while (!pendingAgyLines.isEmpty() && count < 200) {
-                            val l = pendingAgyLines.poll() ?: break
-                            lines.add(l)
-                            count++
-                        }
-                        if (lines.size > 50000) {
-                            lines.removeRange(0, lines.size - 50000)
-                        }
-                        if (!pendingAgyLines.isEmpty()) {
-                            isAgyFlushPending = true
-                            mainHandler.postDelayed({ appendAgyLine("") }, 30L)
-                        }
-                    } else {
-                        pendingAgyLines.clear()
-                    }
-                } catch (_: Exception) {}
-            }, 30L)
+        if (currentSessionName.value == AGY_SESSION_NAME) {
+            scheduleAgyFlush()
         }
     }
 

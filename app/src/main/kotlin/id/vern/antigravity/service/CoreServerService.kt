@@ -96,7 +96,7 @@ class CoreServerService : Service() {
         Log.i(TAG, "Destroying CoreServerService...")
         dismissNotification()
         serviceScope.cancel()
-        stopBackgroundDaemon()
+        Thread { stopBackgroundDaemon() }.apply { isDaemon = true; start() }
         gatewayServer?.stop()
         wakeLockHolder.release()
         AppLogger.d("Engine", "CoreServerService stopped")
@@ -126,6 +126,8 @@ class CoreServerService : Service() {
                 if (daemonBin.canExecute()) {
                     Log.i(TAG, "Starting autonomous background daemon...")
                     val homeDir = File(filesDir, "home").apply { mkdirs() }
+                    val logDir = File(filesDir, "srv").apply { mkdirs() }
+                    val logFile = File(logDir, "agy-daemon.log")
                     val pb = ProcessBuilder(daemonBin.absolutePath, "start")
                     pb.directory(homeDir)
                     pb.environment()["PATH"] = "${filesDir.absolutePath}/usr/bin:${filesDir.absolutePath}/engine/bin:/system/bin"
@@ -133,6 +135,8 @@ class CoreServerService : Service() {
                     pb.environment()["PREFIX"] = "${filesDir.absolutePath}/usr"
                     pb.environment()["AGY_APPLICATION_ID"] = packageName
                     pb.environment()["APPLICATION_ID"] = packageName
+                    pb.redirectErrorStream(true)
+                    pb.redirectOutput(ProcessBuilder.Redirect.to(logFile))
                     pb.start()
                 }
             } catch (e: Exception) {
@@ -151,6 +155,7 @@ class CoreServerService : Service() {
                 pb.directory(homeDir)
                 pb.environment()["PATH"] = "${filesDir.absolutePath}/usr/bin:${filesDir.absolutePath}/engine/bin:/system/bin"
                 pb.environment()["HOME"] = homeDir.absolutePath
+                pb.redirectErrorStream(true)
                 val p = pb.start()
                 if (!p.waitFor(1500, TimeUnit.MILLISECONDS)) {
                     p.destroyForcibly()

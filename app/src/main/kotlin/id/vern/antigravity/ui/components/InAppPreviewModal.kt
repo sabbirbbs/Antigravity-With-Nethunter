@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -58,6 +59,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -502,6 +504,19 @@ private fun InAppWebBrowserContent(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+            DisposableEffect(Unit) {
+                onDispose {
+                    webViewRef?.let { wv ->
+                        try {
+                            wv.stopLoading()
+                            wv.loadUrl("about:blank")
+                            wv.removeAllViews()
+                            wv.destroy()
+                        } catch (_: Exception) {}
+                    }
+                    webViewRef = null
+                }
+            }
         }
     }
 }
@@ -521,6 +536,7 @@ private fun InAppLocalFilePreviewContent(
     var dirEntries by remember { mutableStateOf<List<RootFileEntry>>(emptyList()) }
     var textContent by remember { mutableStateOf<String?>(null) }
     var imageTempFile by remember { mutableStateOf<File?>(null) }
+    var htmlWebViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
     val ext = currentFile.extension.lowercase(Locale.ROOT)
@@ -652,7 +668,9 @@ private fun InAppLocalFilePreviewContent(
                                 try {
                                     val temp = RootNetHunterManager.copyFileToAccessibleTemp(context, currentFile) ?: currentFile
                                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", temp)
-                                    val mime = context.contentResolver.getType(uri) ?: "*/*"
+                                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                                        ?: context.contentResolver.getType(uri)
+                                        ?: "*/*"
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
                                         setDataAndType(uri, mime)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -744,6 +762,7 @@ private fun InAppLocalFilePreviewContent(
                                 settings.loadWithOverviewMode = true
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
+                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                 setOnTouchListener { v, event ->
                                     when (event.actionMasked) {
                                         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> v.parent?.requestDisallowInterceptTouchEvent(true)
@@ -752,9 +771,11 @@ private fun InAppLocalFilePreviewContent(
                                     false
                                 }
                                 webViewClient = WebViewClient()
+                                htmlWebViewRef = this
                             }
                         },
                         update = { webView ->
+                            htmlWebViewRef = webView
                             val cacheKey = "${currentFile.absolutePath}:${textContent.hashCode()}"
                             if (webView.tag != cacheKey) {
                                 webView.tag = cacheKey
@@ -765,6 +786,19 @@ private fun InAppLocalFilePreviewContent(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            htmlWebViewRef?.let { wv ->
+                                try {
+                                    wv.stopLoading()
+                                    wv.loadUrl("about:blank")
+                                    wv.removeAllViews()
+                                    wv.destroy()
+                                } catch (_: Exception) {}
+                            }
+                            htmlWebViewRef = null
+                        }
+                    }
                 }
                 !showSourceCode && isMarkdown && textContent != null -> {
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
