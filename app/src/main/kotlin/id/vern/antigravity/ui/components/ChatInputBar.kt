@@ -1,12 +1,8 @@
 package id.vern.antigravity.ui.components
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Build
-import android.speech.RecognizerIntent
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -55,7 +51,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
@@ -191,7 +186,6 @@ fun ChatInputBar(
     onModelSelectorClick: () -> Unit,
     onAttachFileClick: () -> Unit,
     onRemoveAttachment: (AttachedFile) -> Unit,
-    onVoiceInputClick: (() -> Unit)? = null,
     onStopExecution: () -> Unit = {},
     onProcessQueuedMessageNow: (String) -> Unit = {},
     onEditQueuedMessage: (String) -> QueuedMessage? = { null },
@@ -265,20 +259,6 @@ fun ChatInputBar(
             asFrameworkPaint().apply {
                 isAntiAlias = true
                 style = android.graphics.Paint.Style.STROKE
-            }
-        }
-    }
-
-    val voicePrompt = stringResource(R.string.chat_voice_prompt)
-    val voiceUnavailableMsg = stringResource(R.string.chat_voice_unavailable, "")
-
-    val speechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!spokenText.isNullOrBlank()) {
-                inputText = if (inputText.isBlank()) spokenText else "$inputText $spokenText"
             }
         }
     }
@@ -1141,69 +1121,6 @@ fun ChatInputBar(
                                 }
                             }
                         }
-                    }
-
-                    var voiceLang by remember {
-                        mutableStateOf(id.vern.antigravity.root.RootNetHunterManager.getVoiceLanguage(context))
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.clickable {
-                            val next = when (voiceLang) {
-                                "bn-BD" -> "en-US"
-                                "en-US" -> "bn-IN"
-                                "bn-IN" -> ""
-                                else -> "bn-BD"
-                            }
-                            voiceLang = next
-                            id.vern.antigravity.root.RootNetHunterManager.setVoiceLanguage(context, next)
-                            val label = id.vern.antigravity.root.RootNetHunterManager.getVoiceLanguageBadge(next)
-                            Toast.makeText(context, "Voice: $label", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text(
-                            text = id.vern.antigravity.root.RootNetHunterManager.getVoiceLanguageBadge(voiceLang),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Box(
-                        modifier = Modifier
-                            .requiredSize(32.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                if (onVoiceInputClick != null) {
-                                    onVoiceInputClick()
-                                } else {
-                                    try {
-                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                            if (voiceLang.isNotBlank()) {
-                                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceLang)
-                                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, voiceLang)
-                                            }
-                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "$voicePrompt (${id.vern.antigravity.root.RootNetHunterManager.getVoiceLanguageBadge(voiceLang)})")
-                                        }
-                                        speechLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "$voiceUnavailableMsg: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = stringResource(R.string.chat_voice_input),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
 
                     Spacer(modifier = Modifier.width(4.dp))

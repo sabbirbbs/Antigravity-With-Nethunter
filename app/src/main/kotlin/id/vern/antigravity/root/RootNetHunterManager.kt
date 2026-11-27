@@ -710,8 +710,9 @@ EOF
         val ruleText = """
             # Root & Kali NetHunter Android Environment (Dual Host + Linux Context)
             
-            - **Current OS & Shell Context**: You are executing natively inside **Kali NetHunter (`$chrootText`, `uid=0` Root: `${status.hasRoot}`)** on a rooted Xiaomi POCO F1 ARM64 device.
+            - **Current OS & Shell Context**: You are executing natively inside **Kali NetHunter (`$chrootText`, `uid=0` Root: `${status.hasRoot}`, Chroot Mounted: `${status.isChrootMounted}`)** on a rooted Xiaomi POCO F1 ARM64 device.
             - **Active Execution Mode**: `${status.effectiveMode.displayName}`
+            - **System Integrity Guarantee**: Magisk root binaries and NetHunter system files are 100% untouched and preserved. All shims and bridge wrappers operate non-intrusively.
             - **Dual Operating System Architecture**:
               1. **Kali Linux Native Tools**: All standard Linux & penetration testing tools (`nmap`, `sqlmap`, `python3`, `bash`, `node`, `npm`, `git`, `curl`, `ip`, `ss`, `tcpdump`, `wireshark`, `tshark`, `metasploit`, `aircrack-ng`) run directly with full root permissions (`uid=0`, `gid=0`).
               2. **Android Host OS Bridge (`android` command)**: You can execute ANY native Android system command directly from within Kali using `android "<command>"` or `android-sh` (powered by `nsenter -t 1 -m /system/bin/sh` into Android's root namespace).

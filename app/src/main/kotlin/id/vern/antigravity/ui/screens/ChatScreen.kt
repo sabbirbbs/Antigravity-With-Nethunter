@@ -510,22 +510,14 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            runCatching {
-                listState.scrollToItem(messages.size)
-            }
-        }
-    }
-
-    val lastMessage = messages.lastOrNull()
-    val lastMessageContentLength = lastMessage?.content?.length ?: 0
-    val lastMessageThinkingLength = lastMessage?.thinking?.length ?: 0
-    val lastMessageStepsCount = lastMessage?.steps?.size ?: 0
-
-    LaunchedEffect(lastMessageContentLength, lastMessageThinkingLength, lastMessageStepsCount, isExecuting) {
-        if (isExecuting && messages.isNotEmpty() && !listState.isScrollInProgress) {
-            kotlinx.coroutines.delay(350)
-            runCatching {
-                listState.scrollToItem(messages.size)
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            // Only auto-scroll when a new message is added IF user is already at the bottom.
+            // If user scrolled up to read earlier messages/data, do NOT hijack scroll!
+            if (totalItems <= 2 || lastVisibleIndex >= totalItems - 2) {
+                runCatching {
+                    listState.scrollToItem(messages.size)
+                }
             }
         }
     }
