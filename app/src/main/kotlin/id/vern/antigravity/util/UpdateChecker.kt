@@ -30,8 +30,22 @@ class UpdateChecker(private val context: Context) {
     companion object {
         const val OTA_NOTIFICATION_CHANNEL_ID = "ota_updates_channel"
         const val OTA_NOTIFICATION_ID = 1009
-        const val GITHUB_OWNER = "KuatoDev"
-        const val GITHUB_REPO = "Antigravity"
+        const val GITHUB_OWNER = "sabbirbbs"
+        const val GITHUB_REPO = "Antigravity-With-Nethunter"
+        const val PREFS_OTA = "antigravity_ota_prefs"
+        const val KEY_DISMISSED_VERSION = "dismissed_ota_version"
+        const val KEY_LAST_CHECK_TIME = "last_ota_check_time"
+    }
+
+    fun markUpdateDismissed(version: String) {
+        context.getSharedPreferences(PREFS_OTA, Context.MODE_PRIVATE)
+            .edit().putString(KEY_DISMISSED_VERSION, version.trim()).apply()
+    }
+
+    fun isUpdateDismissed(version: String): Boolean {
+        val dismissed = context.getSharedPreferences(PREFS_OTA, Context.MODE_PRIVATE)
+            .getString(KEY_DISMISSED_VERSION, "") ?: ""
+        return dismissed.isNotBlank() && dismissed.equals(version.trim(), ignoreCase = true)
     }
 
     private fun fetchGitHubApi(apiUrl: String): Pair<Int, String?> {
@@ -48,6 +62,14 @@ class UpdateChecker(private val context: Context) {
         currentVersion: String,
         isManualCheck: Boolean = false
     ): UpdateInfo? = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences(PREFS_OTA, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastCheck = prefs.getLong(KEY_LAST_CHECK_TIME, 0L)
+        if (!isManualCheck && now - lastCheck < 6 * 3600 * 1000L) {
+            return@withContext null
+        }
+        prefs.edit().putLong(KEY_LAST_CHECK_TIME, now).apply()
+
         val owner = GITHUB_OWNER
         val repo = GITHUB_REPO
 
@@ -112,6 +134,10 @@ class UpdateChecker(private val context: Context) {
             }
 
             if (!isNewerVersion(currentVersion, tagName)) {
+                return@withContext null
+            }
+
+            if (!isManualCheck && isUpdateDismissed(tagName)) {
                 return@withContext null
             }
 

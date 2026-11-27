@@ -106,11 +106,11 @@ class MainActivity : ComponentActivity() {
                 val otaState by viewModel.otaState.collectAsStateWithLifecycle()
                 AppUpdateDialog(
                     state = otaState,
-                    onDismiss = { viewModel.dismissOtaUpdate() },
+                    onDismiss = { viewModel.dismissOtaUpdate(this@MainActivity) },
                     onStartDownload = { info -> viewModel.startOtaDownload(this@MainActivity, info) },
                     onInstallApk = { downloadId ->
                         UpdateChecker(this@MainActivity).installApk(downloadId)
-                        viewModel.dismissOtaUpdate()
+                        viewModel.dismissOtaUpdate(this@MainActivity)
                     }
                 )
 

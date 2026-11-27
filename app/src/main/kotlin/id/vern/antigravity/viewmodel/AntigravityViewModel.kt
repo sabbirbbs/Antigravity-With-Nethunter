@@ -712,7 +712,6 @@ class AntigravityViewModel : ViewModel() {
             scope = viewModelScope,
             onCheckUpdates = {
                 checkForCoreEngineUpdate(it)
-                checkForOtaUpdates(it)
             },
             onAccountChangeDetected = { email ->
                 mutableUserQuotaSummary.value = null
@@ -1045,7 +1044,11 @@ class AntigravityViewModel : ViewModel() {
         }
     }
 
-    fun dismissOtaUpdate() {
+    fun dismissOtaUpdate(context: Context? = null) {
+        val current = otaState.value
+        if (current is AppUpdateState.Available && context != null) {
+            UpdateChecker(context).markUpdateDismissed(current.info.version)
+        }
         otaState.value = AppUpdateState.Idle
     }
 
