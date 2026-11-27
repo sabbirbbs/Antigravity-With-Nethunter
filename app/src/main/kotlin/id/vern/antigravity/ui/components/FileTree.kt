@@ -325,7 +325,8 @@ fun FileTree(
                             if (!newD.mkdirs()) {
                                 val escaped = newD.absolutePath.replace("'", "'\\''")
                                 try {
-                                    Runtime.getRuntime().exec(arrayOf("su", "-mm", "-c", "mkdir -p '$escaped' && chmod 777 '$escaped'")).waitFor()
+                                    val suBin = id.vern.antigravity.root.RootNetHunterManager.findSuBinary()
+                                    Runtime.getRuntime().exec(arrayOf(suBin, "-mm", "-c", "mkdir -p '$escaped' && chmod 777 '$escaped'")).waitFor()
                                 } catch (_: Exception) {}
                             }
                             showNewFolderDialog = false

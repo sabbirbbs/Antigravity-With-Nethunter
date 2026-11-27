@@ -142,7 +142,9 @@ object InAppPreviewController {
                 if (readable != null) {
                     openFile(context, fileObj, anchor)
                 } else {
-                    Toast.makeText(context, "File not found: ${fileObj.absolutePath}", Toast.LENGTH_SHORT).show()
+                    if (!id.vern.antigravity.util.ExternalFileOpener.openUrlOrFile(context, trimmed)) {
+                        Toast.makeText(context, "File not found: ${fileObj.absolutePath}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             return

@@ -126,7 +126,7 @@ object EngineExecutor {
             val pb = if (execMode == ExecutionMode.KALI_NETHUNTER && !chrootPath.isNullOrBlank()) {
                 RootNetHunterManager.ensureChrootMounted(context, chrootPath, targetCwd)
                 val chrootCmd = RootNetHunterManager.buildChrootInvocation(chrootPath, command, targetCwd.absolutePath)
-                ProcessBuilder("su", "-mm", "-c", chrootCmd)
+                ProcessBuilder(RootNetHunterManager.findSuBinary(), "-mm", "-c", chrootCmd)
             } else if (execMode == ExecutionMode.ROOT_ANDROID) {
                 val escCwd = RootNetHunterManager.shellEscape(targetCwd.absolutePath)
                 val escCmd = RootNetHunterManager.shellEscape(command)
@@ -152,7 +152,7 @@ object EngineExecutor {
                     append("cd '$escCwd' 2>/dev/null || cd '${RootNetHunterManager.shellEscape(homeDir.absolutePath)}'; ")
                     append("exec '${RootNetHunterManager.shellEscape(bashBin)}' -c '$escCmd'")
                 }
-                ProcessBuilder("su", "-mm", "-c", rootWrapper)
+                ProcessBuilder(RootNetHunterManager.findSuBinary(), "-mm", "-c", rootWrapper)
             } else {
                 ProcessBuilder(bashBin, "-c", command).apply {
                     directory(targetCwd)
@@ -517,7 +517,7 @@ object EngineExecutor {
                 append("ANTIGRAVITY_APP_DATA_DIR='${esc(appDataDirStr)}' ")
                 append("/bin/bash -c 'cd \"\$1\" 2>/dev/null || cd /root; shift; exec \"\$@\"' _ '${esc(chrootCwd)}' $cmdJoined")
             }
-            return ProcessBuilder("su", "-mm", "-c", chrootLaunch)
+            return ProcessBuilder(RootNetHunterManager.findSuBinary(), "-mm", "-c", chrootLaunch)
         }
 
         val pathStr = "${File(prefixDir, "bin").absolutePath}:${File(engineDir, "bin").absolutePath}$extraGitPath:/system_ext/bin:/system_ext/xbin:/debug_ramdisk:/sbin:/su/bin:/system/bin:/system/xbin"
@@ -553,7 +553,7 @@ object EngineExecutor {
                 append("cd '${esc(targetCwd.absolutePath)}' 2>/dev/null || cd '${esc(homeDir.absolutePath)}'; ")
                 append("exec $cmdJoined")
             }
-            return ProcessBuilder("su", "-mm", "-c", rootLaunch)
+            return ProcessBuilder(RootNetHunterManager.findSuBinary(), "-mm", "-c", rootLaunch)
         }
 
         return ProcessBuilder(cmdList).apply {

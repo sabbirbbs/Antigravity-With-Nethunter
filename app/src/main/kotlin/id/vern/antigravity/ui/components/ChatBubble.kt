@@ -163,7 +163,16 @@ fun ChatBubble(
                                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                                                 shape = RoundedCornerShape(8.dp)
                                             )
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .clickable {
+                                                id.vern.antigravity.util.ExternalFileOpener.openAttachment(
+                                                    context = context,
+                                                    localPath = file.localPath,
+                                                    uri = file.uri,
+                                                    mimeType = file.mimeType,
+                                                    fileName = file.name
+                                                )
+                                            },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         val imageModel = file.localPath?.let { File(it) } ?: file.uri
@@ -178,7 +187,18 @@ fun ChatBubble(
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
                                         color = MaterialTheme.colorScheme.surfaceVariant,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                id.vern.antigravity.util.ExternalFileOpener.openAttachment(
+                                                    context = context,
+                                                    localPath = file.localPath,
+                                                    uri = file.uri,
+                                                    mimeType = file.mimeType,
+                                                    fileName = file.name
+                                                )
+                                            }
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,

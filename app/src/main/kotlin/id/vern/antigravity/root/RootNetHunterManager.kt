@@ -141,11 +141,38 @@ object RootNetHunterManager {
         }
     }
 
+    @Volatile
+    private var cachedSuBin: String? = null
+
+    fun findSuBinary(): String {
+        cachedSuBin?.let { return it }
+        val candidates = listOf(
+            "/system_ext/bin/su",
+            "/system_ext/xbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/sbin/su",
+            "/data/adb/ksu/bin/su",
+            "/data/adb/ap/bin/su",
+            "/debug_ramdisk/su"
+        )
+        for (path in candidates) {
+            val f = File(path)
+            if (f.exists() && f.canExecute()) {
+                cachedSuBin = path
+                return path
+            }
+        }
+        cachedSuBin = "su"
+        return "su"
+    }
+
     fun shellEscape(value: String): String = value.replace("'", "'\\''")
 
     fun runSuQuick(command: String, timeoutMs: Long = 4000L): Pair<Int, String> {
         return try {
-            val pb = ProcessBuilder("su", "-mm", "-c", command)
+            val suBin = findSuBinary()
+            val pb = ProcessBuilder(suBin, "-mm", "-c", command)
             pb.redirectErrorStream(true)
             val proc = pb.start()
             val out = StringBuffer()
@@ -985,7 +1012,8 @@ EOF
         if (cachedStatus?.hasRoot != true) return false
         return try {
             val esc = shellEscape(file.absolutePath)
-            val pb = ProcessBuilder("su", "-mm", "-c", "mkdir -p \"\$(dirname '$esc')\" && cat > '$esc'")
+            val suBin = findSuBinary()
+            val pb = ProcessBuilder(suBin, "-mm", "-c", "mkdir -p \"\$(dirname '$esc')\" && cat > '$esc'")
             pb.redirectErrorStream(true)
             val proc = pb.start()
             proc.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }

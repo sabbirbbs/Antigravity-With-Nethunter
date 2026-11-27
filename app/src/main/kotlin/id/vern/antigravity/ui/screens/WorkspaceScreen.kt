@@ -110,6 +110,10 @@ fun WorkspaceScreen(
     }
 
     fun openFile(file: File) {
+        if (id.vern.antigravity.util.ExternalFileOpener.isExternalBinaryFile(file)) {
+            id.vern.antigravity.util.ExternalFileOpener.openFile(context, file)
+            return
+        }
         viewModel.openFileInEditor(file)
         activeView = ActiveToolView.EDITOR
     }

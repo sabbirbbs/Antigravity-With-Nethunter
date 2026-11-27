@@ -643,5 +643,16 @@
     <string name="model_toast_requires_pro">%1$s requires a Google AI Pro subscription</string>
     <string name="model_toast_requires_ultra">%1$s requires a Google AI Ultra subscription</string>
     <string name="workspace_label">Workspace: %1$s</string>
+    <string name="file_opener_not_found">File not found: %1$s</string>
+    <string name="file_opener_cannot_open">Cannot open: %1$s</string>
+    <string name="file_opener_cannot_share">Cannot share file: %1$s</string>
+    <string name="file_opener_no_app">No app available to open: %1$s</string>
+    <string name="agent_done_notification_channel_name">Agent Responses</string>
+    <string name="agent_done_notification_channel_desc">Alerts when Antigravity finishes thinking in the background</string>
+    <string name="agent_done_notification_title">Antigravity finished</string>
+    <string name="agent_done_notification_title_duration">Antigravity finished · %1$s</string>
+    <string name="agent_error_notification_title">Antigravity · Error</string>
+    <string name="settings_notify_on_completion_title">Notify when finished</string>
+    <string name="settings_notify_on_completion_desc">Send a notification when Antigravity finishes responding while in the background or screen is off.</string>
 </resources>
 

@@ -121,7 +121,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        id.vern.antigravity.service.AgentCompletionNotification.onActivityResumed(this)
         viewModel.onActivityResume(this)
+    }
+
+    override fun onPause() {
+        id.vern.antigravity.service.AgentCompletionNotification.onActivityPaused()
+        super.onPause()
     }
 }
 

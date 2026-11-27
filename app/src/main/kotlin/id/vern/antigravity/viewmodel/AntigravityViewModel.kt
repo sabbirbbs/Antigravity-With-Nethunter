@@ -2595,6 +2595,16 @@ class AntigravityViewModel : ViewModel() {
                             } else msg
                         }
                     }
+
+                    val activeTitle = conversationHistory.value.firstOrNull { it.id == convId }?.title
+                        ?: conversationTitle.value
+                    id.vern.antigravity.service.AgentCompletionNotification.notifyTurnFinished(
+                        context = context.applicationContext,
+                        conversationTitle = activeTitle,
+                        responsePreview = finalContent,
+                        durationText = durText,
+                        isError = exitCode != 0
+                    )
                 }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) {
@@ -2602,17 +2612,27 @@ class AntigravityViewModel : ViewModel() {
                         list.filter { it.id != assistantMsgId || it.content.isNotBlank() }
                     }
                 } else {
+                    val errorMsg = "Execution error: ${e.message}"
                     mutableChatMessages.update { list ->
                         list.map { msg ->
                             if (msg.id == assistantMsgId) {
                                 msg.copy(
                                     status = MessageStatus.ERROR,
-                                    content = "Execution error: ${e.message}",
+                                    content = errorMsg,
                                     thinking = null
                                 )
                             } else msg
                         }
                     }
+                    val activeTitle = conversationHistory.value.firstOrNull { it.id == convId }?.title
+                        ?: conversationTitle.value
+                    id.vern.antigravity.service.AgentCompletionNotification.notifyTurnFinished(
+                        context = context.applicationContext,
+                        conversationTitle = activeTitle,
+                        responsePreview = errorMsg,
+                        durationText = null,
+                        isError = true
+                    )
                 }
             } finally {
                 executionWakeLock.release()
